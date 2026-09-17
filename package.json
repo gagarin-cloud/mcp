@@ -1,0 +1,56 @@
+{
+  "name": "@gagarin-cloud/mcp",
+  "version": "0.1.0",
+  "description": "The gagarin MCP server — deploy and operate applications on gagarin from any MCP-speaking agent.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "homepage": "https://gagarin.cloud",
+  "bugs": {
+    "url": "https://github.com/gagarin-cloud/mcp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gagarin-cloud/mcp.git"
+  },
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "gagarin",
+    "paas",
+    "deploy",
+    "kubernetes",
+    "agent"
+  ],
+  "bin": {
+    "gagarin-mcp": "dist/stdio.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/http.js",
+    "stdio": "node dist/stdio.js",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test dist/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "express": "^5.2.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3"
+  }
+}

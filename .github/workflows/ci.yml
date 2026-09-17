@@ -1,0 +1,36 @@
+# Every push and pull request: install from the lockfile, build, test, and build
+# the image the way production does.
+#
+# This workflow runs on pull requests, including ones from forks, so it holds no
+# secret and must never be given one. Deploying is deploy.yml, which runs only
+# on main and reads its credentials from the `production` environment.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  # The Dockerfile runs the tests again inside its build stage, so this is also
+  # the check that the image and the code it came from agree.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build --platform linux/amd64 -t gagarin-mcp:ci .

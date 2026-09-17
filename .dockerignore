@@ -1,0 +1,8 @@
+# Build output and installed dependencies are produced inside the image. Copying
+# a host `node_modules` in would both invalidate every layer and risk shipping
+# binaries built for the wrong platform.
+node_modules/
+dist/
+*.log
+.env
+.env.*

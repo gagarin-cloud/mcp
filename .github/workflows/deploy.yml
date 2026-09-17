@@ -1,0 +1,109 @@
+name: deploy
+
+# Every push to main rebuilds the image and rolls mcp.gagarin.cloud.
+#
+#   build → push → kubectl set image, if the Deployment is there → /healthz
+#
+# ─── this repository is public, and these credentials can deploy ────────────
+#
+# SCW_SECRET_KEY pushes to the platform registry and KUBECONFIG_B64 reaches the
+# cluster. Both were made for this workflow alone: the key holds Container
+# Registry and nothing else, and the kubeconfig is a ServiceAccount that may
+# read and patch deploy/gagarin-mcp and nothing else. Even so, where they live
+# and what can read them is the whole security of this file:
+#
+# - They are secrets of the `production` environment, not of the repository,
+#   and that environment's deployment branch rule allows `main` only. A job on
+#   any other ref, a pull request from a fork included, cannot read them.
+# - This workflow runs on push to main and by hand, never on `pull_request` or
+#   `pull_request_target`, so no code that has not been merged runs next to them.
+# - The workflow token is read-only.
+#
+# What a merge to main can do, it can do in production, so review here is the
+# gate. Keep branch protection on main.
+#
+# One drift to know about: gagarin's infrastructure pins `mcp_image` by digest
+# for `tofu apply`. After this rolls, that pin is stale — refresh it from the
+# registry before the next apply, or that apply quietly rolls the server back.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, and a queued one waits rather than cancels: a roll that
+# dies halfway because a newer commit arrived leaves the pods mixed.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: rg.fr-par.scw.cloud/gagarin
+
+jobs:
+  deploy:
+    name: mcp → cluster
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://mcp.gagarin.cloud/healthz
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Log in to the platform registry
+        env:
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+        run: printf '%s' "$SCW_SECRET_KEY" | docker login "$REGISTRY" -u nologin --password-stdin
+
+      # amd64 because that is what Kapsule nodes are, and no provenance or SBOM
+      # so the pushed tag resolves to a plain manifest whose digest is the one the
+      # kubelet pulls — an OCI index digest looks the same and is a different
+      # object. The image's own build stage runs the tests, so a broken server
+      # fails here rather than in the cluster.
+      - name: Build and push
+        run: |
+          docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+            -t "$REGISTRY/gagarin-mcp:latest" -t "$REGISTRY/gagarin-mcp:sha-${GITHUB_SHA::12}" \
+            --push .
+          DIGEST=$(docker buildx imagetools inspect "$REGISTRY/gagarin-mcp:sha-${GITHUB_SHA::12}" 2>/dev/null | awk '/^Digest:/{print $2; exit}')
+          test -n "$DIGEST"
+          echo "DIGEST=$DIGEST" >> "$GITHUB_ENV"
+
+      # Rolled only if it is deployed, and that is not defensive coding. The
+      # Deployment exists only once gagarin's infrastructure has been given an
+      # image, so a cluster that has never had one has nothing to roll — and the
+      # image this job just pushed is exactly what somebody needs in order to
+      # give it one. Failing here would make that impossible.
+      - name: Roll the MCP server
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+        run: |
+          mkdir -p ~/.kube
+          printf '%s' "$KUBECONFIG_B64" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+          # Only NotFound means "not deployed". This identity may read nothing but
+          # that one Deployment, so a revoked or expired token answers Forbidden,
+          # and reading that as "nothing to roll" would pass a deploy that did
+          # nothing.
+          if ! out=$(kubectl get -n gagarin-system deploy/gagarin-mcp -o name 2>&1); then
+            case "$out" in *NotFound*|*"not found"*) ;; *) echo "$out" >&2; exit 1 ;; esac
+            echo "gagarin-mcp is not deployed. Set mcp_image to:"
+            echo "  $REGISTRY/gagarin-mcp@$DIGEST"
+            echo "and apply. Nothing to roll."
+            exit 0
+          fi
+          kubectl set image -n gagarin-system deploy/gagarin-mcp "*=$REGISTRY/gagarin-mcp@$DIGEST"
+          kubectl rollout status -n gagarin-system deploy/gagarin-mcp --timeout=300s
+
+      - name: mcp.gagarin.cloud answers
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' https://mcp.gagarin.cloud/healthz || true)
+            [ "$code" = "200" ] && exit 0
+            sleep 6
+          done
+          echo "mcp.gagarin.cloud did not answer 200 after the roll" >&2
+          exit 1
