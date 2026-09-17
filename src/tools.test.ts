@@ -348,12 +348,12 @@ test('a refusal comes back as an error result an agent can branch on', async () 
   }
 });
 
-test('with no credential the onboarding tools still work and the rest say why', async () => {
+test('with no credential the tools say why, and ask the engine nothing', async () => {
   const real = globalThis.fetch;
   const seen: string[] = [];
   globalThis.fetch = (async (input: any) => {
     seen.push(String(input));
-    return json({ claim: 'ABCD-1234' }, 202);
+    return json({});
   }) as typeof fetch;
 
   const server = createServer(new Api('https://api.example', null));
@@ -361,20 +361,18 @@ test('with no credential the onboarding tools still work and the rest say why', 
   const [a, b] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(b), client.connect(a)]);
   try {
-    const login: any = await client.callTool({
-      name: 'login',
-      arguments: { email: 'someone@example.com' },
-    });
-    assert.notEqual(login.isError, true);
-    assert.deepEqual(seen, ['https://api.example/v1/signup']);
+    const { tools } = await client.listTools();
+    for (const gone of ['login', 'claim']) {
+      assert.ok(!tools.some((t) => t.name === gone), `${gone} went with email sign-in`);
+    }
 
     const projects: any = await client.callTool({ name: 'projects', arguments: {} });
     assert.equal(projects.isError, true);
     assert.match(textOf(projects), /^\[unauthorized\]/);
-    // And it says what to do about it, which is the whole reason an agent with
-    // no credential is allowed to connect at all.
-    assert.match(textOf(projects), /login/);
-    assert.equal(seen.length, 1, 'a call with no credential is not worth making');
+    // And it says how to get one, on either transport.
+    assert.match(textOf(projects), /OAuth/);
+    assert.match(textOf(projects), /gg login/);
+    assert.equal(seen.length, 0, 'a call with no credential is not worth making');
   } finally {
     globalThis.fetch = real;
     await client.close();

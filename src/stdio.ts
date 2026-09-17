@@ -29,7 +29,7 @@ async function main(): Promise<void> {
     `gagarin mcp: api ${base}, credential from ${source}` +
       (token
         ? ''
-        : ' — call `login` to ask a human for one, or export GAGARIN_TOKEN if you already hold one'),
+        : ' — ask your human to run `gg login` on this machine, or export GAGARIN_TOKEN'),
   );
 
   const server = createServer(new Api(base, token));

@@ -2,8 +2,8 @@
   Where a credential comes from when this server runs on somebody's machine.
 
   It reads the file `gg login` already wrote and never writes one. That asymmetry
-  is deliberate: the CLI owns that file — it knows how to get a human to approve
-  a claim, how to write it atomically, and with what mode — and a second writer
+  is deliberate: the CLI owns that file — it knows how to sign a human in, how
+  to write it atomically, and with what mode — and a second writer
   of one file is how two programs come to disagree about a secret. Here it is
   only ever a fallback for "the human has already authorised this machine", so
   `npx @gagarin-cloud/mcp` works on a laptop with no environment to export.
@@ -53,8 +53,7 @@ export function resolveCredentials(): {
   } catch {
     // Missing and unreadable are the same answer — there is no credential here —
     // and the tools say what to do about it far better than a startup error
-    // could, because by then the agent is asking a question we can answer with
-    // `login`.
+    // could: every call answers `[unauthorized]` with a hint to run `gg login`.
     return { token: null, api: process.env.GAGARIN_API, source: 'nothing' };
   }
 

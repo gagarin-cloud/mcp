@@ -157,21 +157,17 @@ test('no credential is refused before a request is made', async () => {
   );
 });
 
-test('the onboarding routes are reachable with no credential at all', async () => {
+test('an unauthenticated route is reachable with no credential at all', async () => {
   let sawAuthorization = true;
   await withFetch(
     (_url, init) => {
       sawAuthorization = 'Authorization' in ((init.headers ?? {}) as Record<string, string>);
-      return json(202, { claim: 'ABCD-1234' });
+      return json(200, { ok: true });
     },
     async () => {
       const api = new Api('https://api.example', null);
-      const body = await api.call<{ claim: string }>('/v1/signup', {
-        method: 'POST',
-        body: { email: 'someone@example.com' },
-        authenticated: false,
-      });
-      assert.equal(body.claim, 'ABCD-1234');
+      const body = await api.call<{ ok: boolean }>('/healthz/platform', { authenticated: false });
+      assert.equal(body.ok, true);
       assert.equal(sawAuthorization, false, 'no header to send, and none sent');
     },
   );

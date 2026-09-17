@@ -19,8 +19,29 @@ Two ways in, one implementation:
 
 | | |
 |---|---|
-| **remote** | `POST https://mcp.gagarin.cloud/mcp`, streamable HTTP, credential in the `Authorization` header |
+| **remote** | `https://mcp.gagarin.cloud/mcp`, streamable HTTP, credential in the `Authorization` header — put there by OAuth sign-in or by hand |
 | **local** | `npx -y @gagarin-cloud/mcp`, stdio, credential from `GAGARIN_TOKEN` or the file `gg login` wrote |
+
+## Signing in
+
+**Remote, with OAuth.** Give the client the URL and nothing else:
+
+```
+https://mcp.gagarin.cloud/mcp
+```
+
+Claude, ChatGPT and Claude Code prompt for sign-in when they connect: the client
+opens a browser and the human signs in with GitHub or Google. A request with no
+credential answers `401` with a `WWW-Authenticate` header pointing at
+`/.well-known/oauth-protected-resource/mcp`, which names `api.gagarin.cloud` as
+the authorization server. This server validates nothing itself; the engine does,
+on every call. `GAGARIN_MCP_ORIGIN` and `GAGARIN_ISSUER` override the two public
+names for a development setup; they are separate from `GAGARIN_API`, which in
+the cluster is the in-cluster Service and no address a client could sign in at.
+
+**Remote, with a credential in a header.** For a client that cannot sign in
+over OAuth, or a machine that should not: a credential from `gg login` or
+`gg creds mint`.
 
 ```jsonc
 {
@@ -34,9 +55,12 @@ Two ways in, one implementation:
 }
 ```
 
-No credential yet? Connect without the header. `login` and `claim` are
-unauthenticated on purpose, so an agent can ask a human for access from inside
-the same session rather than hitting a wall.
+**Local, over stdio.** `npx -y @gagarin-cloud/mcp` reads the file `gg login`
+wrote, or `GAGARIN_TOKEN` if it is set.
+
+A credential that has expired or been revoked is not caught at the door: the
+engine refuses the call and the tool answers `[unauthorized]`. Reconnecting
+signs in again.
 
 ## What is here
 
@@ -45,7 +69,8 @@ the same session rather than hitting a wall.
 | `src/api.ts` | the whole of this server's contact with gagarin: one request, one error envelope |
 | `src/tools.ts` | every tool — each one a path, a shape, and the rule a caller needs before using it |
 | `src/server.ts` | what a client is told on connect, and the `gagarin://guide` resource |
-| `src/http.ts` | mcp.gagarin.cloud: stateless streamable HTTP, one server per request |
+| `src/app.ts` | mcp.gagarin.cloud: stateless streamable HTTP, one server per request, and the OAuth protected-resource metadata |
+| `src/http.ts` | the listener, its configuration and its drain |
 | `src/stdio.ts` | the npm package's entrypoint, for an agent on somebody's machine |
 | `src/credentials.ts` | reads the credential file `gg login` wrote; never writes one |
 | `Dockerfile` | the image mcp.gagarin.cloud runs. Its build stage runs the tests |

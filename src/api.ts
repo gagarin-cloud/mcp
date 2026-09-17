@@ -58,9 +58,9 @@ export function unauthenticated(): ApiFailure {
     code: 'unauthorized',
     message: 'this MCP server was given no gagarin credential',
     fix_hint:
-      'call `login` with your human\'s email address, then `claim` with the code it returns, ' +
-      'and put the credential it hands back in this server\'s Authorization header ' +
-      '(remote) or in GAGARIN_TOKEN (stdio)',
+      'remote: connect by URL and the client signs your human in over OAuth, or send a ' +
+      'credential from `gg login` or `gg creds mint` as `Authorization: Bearer <credential>`; ' +
+      'stdio: have your human run `gg login` on this machine, or export GAGARIN_TOKEN',
   });
 }
 
@@ -71,8 +71,8 @@ export type CallOptions = {
    *  nothing here may give up before it does — a client timeout during an apply
    *  reports a failure for a write that is still going through. */
   timeoutMs?: number;
-  /** Set false for the onboarding routes, which take no credential and must not
-   *  be refused locally for the want of one. */
+  /** Set false for the routes that take no credential — the platform's own
+   *  health — which must not be refused locally for the want of one. */
   authenticated?: boolean;
 };
 
@@ -116,7 +116,7 @@ export class Api {
           method: opts.method ?? 'GET',
           headers: {
             'Content-Type': 'application/json',
-            // The onboarding endpoints answer in prose unless asked otherwise,
+            // Some engine endpoints answer in prose unless asked otherwise,
             // because their usual reader is a language model reading a terminal.
             // This one is a program, and it wants the same JSON the dashboard gets.
             Accept: 'application/json',
