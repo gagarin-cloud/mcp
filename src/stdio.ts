@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 /*
-  The gagarin MCP server, on stdio, for an agent running on somebody's machine.
+  The gagarin MCP server, on stdio, for running from a clone of this repository.
 
-  This is what `npx @gagarin-cloud/mcp` starts. It is the same tools as
-  mcp.gagarin.cloud, over a pipe instead of HTTP, and it exists for two reasons
-  that have nothing to do with the remote one: it takes its credential from the
-  file `gg login` already wrote, so there is nothing to configure on a laptop that
-  has run the CLI once; and it is on npm, which is where an agent looks.
+  This is what `npm run stdio` starts. It is the same tools as mcp.gagarin.cloud,
+  over a pipe instead of HTTP, and it takes its credential from the file
+  `gg login` already wrote, so there is nothing to configure on a machine that
+  has run the CLI once.
+
+  It is deliberately not published to npm. The remote endpoint is the way in —
+  adding gagarin to an agent is a URL and not an install — and a package on
+  somebody's laptop would be a second copy of the tool list, wrong on the day a
+  tool changes.
 
   Nothing is written to stdout but protocol. Anything a human should read goes to
   stderr — a stray console.log here is a corrupted message, and it is the single

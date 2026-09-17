@@ -3,9 +3,7 @@
   "version": "0.1.0",
   "description": "The gagarin MCP server — deploy and operate applications on gagarin from any MCP-speaking agent.",
   "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
   "type": "module",
   "homepage": "https://gagarin.cloud",
   "bugs": {

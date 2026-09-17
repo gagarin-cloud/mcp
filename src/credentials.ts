@@ -6,7 +6,7 @@
   to write it atomically, and with what mode — and a second writer
   of one file is how two programs come to disagree about a secret. Here it is
   only ever a fallback for "the human has already authorised this machine", so
-  `npx @gagarin-cloud/mcp` works on a laptop with no environment to export.
+  a stdio run from a clone works on a laptop with no environment to export.
 
   The path is gg's own, XDG first, for the reason gg gives: agents frequently run
   in containers where HOME is something surprising, and honouring the spec makes

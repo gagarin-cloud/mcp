@@ -164,8 +164,6 @@ export function createApp(config: AppConfig): Express {
           `      }\n` +
           `    }\n` +
           `  }\n\n` +
-          `Locally instead, over stdio:  npx -y @gagarin-cloud/mcp\n` +
-          `(it reads the credential \`gg login\` wrote, or GAGARIN_TOKEN)\n\n` +
           `The CLI, which can also build and push:  https://github.com/gagarin-cloud/gg\n` +
           `Documentation:  https://gagarin.cloud/docs\n`,
       );

@@ -20,7 +20,7 @@ Two ways in, one implementation:
 | | |
 |---|---|
 | **remote** | `https://mcp.gagarin.cloud/mcp`, streamable HTTP, credential in the `Authorization` header — put there by OAuth sign-in or by hand |
-| **local** | `npx -y @gagarin-cloud/mcp`, stdio, credential from `GAGARIN_TOKEN` or the file `gg login` wrote |
+| **local** | `npm run stdio` from a clone of this repository, credential from `GAGARIN_TOKEN` or the file `gg login` wrote — for developing on this server, not a way to install it |
 
 ## Signing in
 
@@ -55,8 +55,12 @@ over OAuth, or a machine that should not: a credential from `gg login` or
 }
 ```
 
-**Local, over stdio.** `npx -y @gagarin-cloud/mcp` reads the file `gg login`
-wrote, or `GAGARIN_TOKEN` if it is set.
+**Local, over stdio.** `npm run stdio` from a clone runs the same tools over a
+pipe, reading the file `gg login` wrote, or `GAGARIN_TOKEN` if it is set. It is
+here to develop against, and is deliberately not published to npm: the point of
+this server is that adding gagarin to an agent is a URL and not an install, and
+a package on somebody's laptop is a second copy of `src/tools.ts` that goes
+stale the day a tool changes.
 
 A credential that has expired or been revoked is caught at the door too, because
 a client signs in again only on an HTTP 401: every POST asks the engine
@@ -75,7 +79,7 @@ the request goes on and each tool reports it with the engine's own code.
 | `src/server.ts` | what a client is told on connect, and the `gagarin://guide` resource |
 | `src/app.ts` | mcp.gagarin.cloud: stateless streamable HTTP, one server per request, and the OAuth protected-resource metadata |
 | `src/http.ts` | the listener, its configuration and its drain |
-| `src/stdio.ts` | the npm package's entrypoint, for an agent on somebody's machine |
+| `src/stdio.ts` | the same tools over a pipe, for developing against from a clone |
 | `src/credentials.ts` | reads the credential file `gg login` wrote; never writes one |
 | `Dockerfile` | the image mcp.gagarin.cloud runs. Its build stage runs the tests |
 
