@@ -92,18 +92,102 @@ async function attempt(fn: () => Promise<unknown>): Promise<ToolResult> {
   }
 }
 
-// Annotations, named once. They are hints a client uses to decide what to
-// confirm with a human, and the three that matter here are: a read changes
-// nothing, a deploy is idempotent (restating it is the same deploy), and a
-// destroy is destructive and needs a human's click besides.
-const READ = { readOnlyHint: true, openWorldHint: true } as const;
-const WRITE = { readOnlyHint: false, idempotentHint: true, openWorldHint: true } as const;
-const DESTROY = {
+/*
+  Annotations: the five hints a client reads before it decides whether to ask a
+  human, and the Connectors Directory requires them.
+
+  Every field is set on every tool, deliberately, because the spec's defaults
+  are the wrong answer here in three places at once: `destructiveHint` defaults
+  **true**, `openWorldHint` defaults **true**, and `idempotentHint` defaults
+  false. A tool that leaves them out is therefore presumed to be an open-world
+  destroyer — which would make an agent stop and ask on every `deploy`, and
+  that is the product.
+
+  `openWorldHint` is false on all of them. Every tool here acts inside one
+  gagarin account; none of them reaches an unbounded external world.
+*/
+
+type Annotations = {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  openWorldHint: boolean;
+};
+
+/** A read. Changes nothing, so asking it twice is asking it once. */
+const reads = (title: string): Annotations => ({
+  title,
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+});
+
+/** A write that only ever adds or restates. Nothing is lost by making it. */
+const writes = (title: string, o: { idempotent: boolean }): Annotations => ({
+  title,
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: o.idempotent,
+  openWorldHint: false,
+});
+
+/** A write that takes something away, and cannot simply be undone by calling
+ *  its opposite. */
+const destroys = (title: string, o: { idempotent: boolean }): Annotations => ({
+  title,
   readOnlyHint: false,
   destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: true,
-} as const;
+  idempotentHint: o.idempotent,
+  openWorldHint: false,
+});
+
+/**
+ * The tools gagarin's own API refuses with `approval_required`.
+ *
+ * Not a guess and not a restatement of the tool list: this is the engine's
+ * `requireElevation` call sites, one per line, and it is the whole set — there
+ * are five of them in the API and `destroyRow` serves two tools:
+ *
+ *   api.go deleteProject      → destroy_project
+ *   api.go destroyRow         → destroy_service, destroy_resource
+ *   domains.go deleteDomain   → remove_domain
+ *   connections.go setNeeds   → set_deps, when the new set drops an edge
+ *   ownership.go postTransfer → transfer
+ *
+ * Every one of these must be `destructiveHint: true`, and tools.test.ts asserts
+ * it against this table rather than against a list of its own. Two of them read
+ * as ordinary writes and are not — `set_deps` withdrawing an edge and
+ * `transfer` handing over the bill both stop dead and mail the owner — and the
+ * annotation is the only place an agent learns that before it calls.
+ *
+ * `set_deps` is here on the worst case, because an annotation is static and the
+ * refusal is not: a set that only adds goes straight through.
+ */
+export const APPROVAL_REQUIRED: ReadonlySet<string> = new Set([
+  'destroy_project',
+  'destroy_resource',
+  'destroy_service',
+  'remove_domain',
+  'set_deps',
+  'transfer',
+]);
+
+/**
+ * Destructive, and yet no human is asked. Named so the invariant above can be
+ * stated as a subset rather than an equality, and so that neither of these
+ * carries the sentence about the emailed button — they would be promising a
+ * pause that never comes.
+ *
+ * `revoke_credential` stops a credential working the moment it is called, and
+ * `rotate_resource` invalidates the old credentials irreversibly. Both are
+ * destructive to an agent's eye and neither goes through `requireElevation`.
+ */
+export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
+  'revoke_credential',
+  'rotate_resource',
+]);
 
 const project = z.string().describe('project name or id');
 const service = z.string().describe('service name, unique within the project');
@@ -115,13 +199,13 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'whoami',
     {
-      title: 'Who this credential is',
+      title: 'Show current account',
       description:
         'Which gagarin account this server is acting as, what the credential may do, and the ' +
         'registry and base domain to build addresses from. Run this first in any session: it is ' +
         'the one call that distinguishes "no credential" from "a credential that cannot deploy".',
       inputSchema: {},
-      annotations: READ,
+      annotations: reads('Show current account'),
     },
     () => attempt(() => api.call('/v1/whoami')),
   );
@@ -129,13 +213,13 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'platform_health',
     {
-      title: 'Is gagarin up',
+      title: 'Check platform health',
       description:
         'The platform\'s own readiness, unauthenticated. Answers whether the control plane can ' +
         'reach its database and cluster and when the reconciler last ran — not whether your ' +
         'service is up, which is `status`.',
       inputSchema: {},
-      annotations: READ,
+      annotations: reads('Check platform health'),
     },
     () => attempt(() => api.call('/healthz/platform', { authenticated: false, timeoutMs: 15_000 })),
   );
@@ -145,14 +229,14 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'projects',
     {
-      title: 'Every project you can reach',
+      title: 'List projects',
       description:
         'Projects this account owns or has been shared with, and the role on each. A `viewer` ' +
         'role means every deploy will be refused, which is worth knowing before the attempt. ' +
         'Names are unique only within one account, so two rows can share a name — the id tells ' +
         'them apart, and every other tool takes either.',
       inputSchema: {},
-      annotations: READ,
+      annotations: reads('List projects'),
     },
     () => attempt(() => api.call('/v1/projects')),
   );
@@ -160,7 +244,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'create_project',
     {
-      title: 'Create a project',
+      title: 'Create project',
       description:
         'A project is the unit of naming, access and billing: everything else lives inside one. ' +
         'Returns its id, which is what image paths are built from.',
@@ -169,7 +253,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .string()
           .describe('2-30 chars, lowercase letters, digits and hyphens, starting with a letter'),
       },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: writes('Create project', { idempotent: false }),
     },
     ({ name }) => attempt(() => api.call('/v1/projects', { method: 'POST', body: { name } })),
   );
@@ -177,7 +261,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'status',
     {
-      title: 'Desired versus actual',
+      title: 'Show project status',
       description:
         'The only call that reads the cluster, and so the only one that can answer "is it up". ' +
         'Every write on this server is asynchronous — a tool that returns without error recorded ' +
@@ -189,7 +273,7 @@ export function registerTools(server: McpServer, api: Api): void {
         '`run` ended. It does not carry a resource\'s environment: what a resource publishes by ' +
         'name is `resource_keys`, and the values are `resource_secrets`.',
       inputSchema: { project },
-      annotations: READ,
+      annotations: reads('Show project status'),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/status`)),
   );
@@ -197,13 +281,13 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'eject',
     {
-      title: 'Take everything and leave',
+      title: 'Export project manifests',
       description:
         'The Kubernetes manifests, Dockerfiles and connection details for a whole project, so it ' +
         'can be run somewhere else. Owner only: what comes back includes every service\'s ' +
         'environment in the clear.',
       inputSchema: { project },
-      annotations: READ,
+      annotations: reads('Export project manifests'),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/eject`)),
   );
@@ -213,7 +297,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'deploy',
     {
-      title: 'Run an image that is already in the registry',
+      title: 'Deploy service',
       description:
         'Declares what a service should be. **The image must already be in gagarin\'s own ' +
         'registry** under this project — gagarin runs nothing else — and this server cannot put ' +
@@ -279,7 +363,7 @@ export function registerTools(server: McpServer, api: Api): void {
               'needs a database can be deployed holding its credentials from the first pod.',
           ),
       },
-      annotations: WRITE,
+      annotations: writes('Deploy service', { idempotent: true }),
     },
     ({ project, service, ...body }) =>
       attempt(() =>
@@ -301,7 +385,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'run',
     {
-      title: 'Run an image to completion',
+      title: 'Run job',
       description:
         'Submits a **job**: an image that runs, exits, and is done — a migration, a backfill, a ' +
         'one-off script. Not a service. It has no port and no volume, nothing can be told to ' +
@@ -344,7 +428,7 @@ export function registerTools(server: McpServer, api: Api): void {
               'hangs rather than failing.',
           ),
       },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: writes('Run job', { idempotent: false }),
     },
     ({ project, service, ...body }) =>
       attempt(() =>
@@ -358,12 +442,12 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'logs',
     {
-      title: 'Recent logs',
+      title: 'Show logs',
       description:
         'The last 200 lines from a service, or from a job\'s latest run. A tail, not a stream — ' +
         'there is no more, and for a job there is no way to read a run older than the last one.',
       inputSchema: { project, service },
-      annotations: READ,
+      annotations: reads('Show logs'),
     },
     ({ project, service }) =>
       attempt(() => api.call(`/v1/projects/${seg(project)}/services/${seg(service)}/logs`)),
@@ -372,13 +456,13 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'history',
     {
-      title: 'Every deploy of a service',
+      title: 'Show deploy history',
       description:
         'Each recorded revision with its image, port, environment and the dependencies it ran ' +
         'under. `revision` is what `rollback` takes — and for a job it is also what each run was ' +
         'called, so this is the list of runs.',
       inputSchema: { project, service },
-      annotations: READ,
+      annotations: reads('Show deploy history'),
     },
     ({ project, service }) =>
       attempt(() => api.call(`/v1/projects/${seg(project)}/services/${seg(service)}/deployments`)),
@@ -387,7 +471,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'rollback',
     {
-      title: 'Put a past revision back',
+      title: 'Roll back to a revision',
       description:
         'Deploys a revision this service already ran. No human approval, because it restores a ' +
         'state that was already approved once; it refuses to cross a change of volume. Rolling a ' +
@@ -413,7 +497,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .optional()
           .describe('the revision from `history`. Absent means the previous one.'),
       },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: writes('Roll back to a revision', { idempotent: true }),
     },
     ({ project, service, to }) =>
       attempt(() =>
@@ -427,7 +511,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'add_domain',
     {
-      title: 'Put a service on the internet',
+      title: 'Add domain',
       description:
         'With no domain, hands out gagarin\'s own generated address and the certificate is already ' +
         'held. With one, claims that name — and the answer says what DNS record the owner has to ' +
@@ -442,7 +526,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .optional()
           .describe('a hostname you control, e.g. shop.example.com. Absent asks for the generated one.'),
       },
-      annotations: WRITE,
+      annotations: writes('Add domain', { idempotent: true }),
     },
     ({ project, service, domain }) =>
       attempt(() =>
@@ -456,18 +540,20 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'remove_domain',
     {
-      title: 'Take an address away',
+      title: 'Remove domain',
       description:
         'With a domain, releases that custom name. With none, takes the service off the internet ' +
         'entirely — which is refused while a custom name still points at it, since that would ' +
-        'leave somebody\'s DNS aimed at a host gagarin no longer serves. Needs a human\'s approval, ' +
-        'like every other release.',
+        'leave somebody\'s DNS aimed at a host gagarin no longer serves. Releasing a custom name ' +
+        'cannot be undone if somebody else claims it in the meantime. ' +
+        'Expect `approval_required`: the call completes only when the account owner clicks the ' +
+        'button emailed to them, so explain the pause to your user instead of retrying.',
       inputSchema: {
         project,
         service,
         domain: z.string().optional().describe('the custom name to release. Absent means the generated address.'),
       },
-      annotations: DESTROY,
+      annotations: destroys('Remove domain', { idempotent: true }),
     },
     ({ project, service, domain }) =>
       attempt(() =>
@@ -482,14 +568,14 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'deps',
     {
-      title: 'What a service may reach',
+      title: 'Show dependencies',
       description:
         'Its outgoing edges, what depends on it, and how the graph got that way. A private ' +
         'service is default-denied: until the **caller** declares the edge, its calls are dropped, ' +
         'which hangs rather than failing fast — so this is the first thing to read when something ' +
         'times out talking to something else in the same project.',
       inputSchema: { project, service },
-      annotations: READ,
+      annotations: reads('Show dependencies'),
     },
     ({ project, service }) =>
       attempt(() => api.call(`/v1/projects/${seg(project)}/services/${seg(service)}/needs`)),
@@ -498,19 +584,23 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'set_deps',
     {
-      title: 'Declare what a service may reach',
+      title: 'Set dependencies',
       description:
-        'Replaces the complete set of things this service may reach, so an empty list means ' +
-        '"nothing" and is a real request. Declaring a resource opens the route **and** hands over ' +
-        'its connection variables, so connecting a database is this one call and not a call plus ' +
-        'a deploy — the dependents roll on their own. To add without risking a withdrawal, pass ' +
-        '`deps` on `deploy` instead.\n' +
+        'Replaces the complete set of things this service may reach. **An empty list disconnects ' +
+        'this service from everything** — the graph is the firewall, so passing `[]` cuts every ' +
+        'connection it has, and that is a real request rather than a no-op. It is reversible by ' +
+        'another `set_deps` naming the edges again. Declaring a resource opens the route **and** ' +
+        'hands over its connection variables, so connecting a database is this one call and not ' +
+        'a call plus a deploy — the dependents roll on their own. To add without risking a ' +
+        'withdrawal, pass `deps` on `deploy` instead.\n' +
         'A set that drops an edge this service currently holds **needs a human**: it answers ' +
         '`approval_required` and emails the owner, exactly as deleting a service does. A set that ' +
         'only adds goes through. Read `deps` first and send that list plus your additions, or you ' +
         'will ask somebody to approve a withdrawal you did not mean — and a withdrawal is the one ' +
         'change that reports nothing at runtime: the calls are dropped, not refused, so the far ' +
-        'end hangs until it times out.\n' +
+        'end hangs until it times out. Expect `approval_required`: the call completes only when ' +
+        'the account owner clicks the button emailed to them, so explain the pause to your user ' +
+        'instead of retrying.\n' +
         'A job may need things, and nothing may need a job: an edge is a rule about a port and a ' +
         'job has none, so naming one here is refused. If a job and a service share data, that is ' +
         'a resource they both need.',
@@ -521,7 +611,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .array(z.string())
           .describe('the complete list of services and resources this one may reach'),
       },
-      annotations: WRITE,
+      annotations: destroys('Set dependencies', { idempotent: true }),
     },
     ({ project, service, needs }) =>
       attempt(() =>
@@ -537,7 +627,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'add_resource',
     {
-      title: 'Provision a managed resource',
+      title: 'Add resource',
       description:
         'Something gagarin runs on your behalf — a database, a cache, a vector store — or an ' +
         '`external`, a row that runs nothing and only publishes values. You name it and say ' +
@@ -576,7 +666,7 @@ export function registerTools(server: McpServer, api: Api): void {
               'type, whose credentials are gagarin\'s to mint rather than yours to choose.',
           ),
       },
-      annotations: WRITE,
+      annotations: writes('Add resource', { idempotent: true }),
     },
     ({ project, resource, ...body }) =>
       attempt(() =>
@@ -590,7 +680,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'resource_keys',
     {
-      title: 'What a resource publishes, by name',
+      title: 'List resource keys',
       description:
         'The variable names a resource publishes to whatever declares it — and no values. ' +
         '**Prefer this over `resource_secrets` unless you actually need a value.** It answers the ' +
@@ -600,7 +690,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'conversation; `status` will not tell you either, since it reports only that the resource ' +
         'publishes NAME_*.',
       inputSchema: { project, resource },
-      annotations: READ,
+      annotations: reads('List resource keys'),
     },
     ({ project, resource }) =>
       attempt(() => api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/keys`)),
@@ -609,7 +699,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'resource_secrets',
     {
-      title: 'A resource\'s connection values',
+      title: 'Show resource secrets',
       description:
         'The host, port, user, password and URL a client would need. For reading, and for ' +
         'something outside the project: a service inside it should declare the resource in `deps` ' +
@@ -619,7 +709,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'verify a rotation. If you only need to know what the resource publishes, or what a key ' +
         'is called, that is `resource_keys` and it returns no values.',
       inputSchema: { project, resource },
-      annotations: READ,
+      annotations: reads('Show resource secrets'),
     },
     ({ project, resource }) =>
       attempt(() => api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/secrets`)),
@@ -628,7 +718,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'rotate_resource',
     {
-      title: 'Replace a resource\'s credentials',
+      title: 'Rotate resource credentials',
       description:
         'New credentials, and everything holding them rolls to pick them up. For an `external` ' +
         'the new values are yours to supply and required; for everything else they are gagarin\'s ' +
@@ -665,7 +755,7 @@ export function registerTools(server: McpServer, api: Api): void {
               'silently doing nothing. `external` only, and not combinable with env.',
           ),
       },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: destroys('Rotate resource credentials', { idempotent: false }),
     },
     ({ project, resource, env, set, unset }) =>
       attempt(() =>
@@ -689,12 +779,12 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'backups',
     {
-      title: 'What has been backed up',
+      title: 'List backups',
       description:
         'Every stored backup of a resource, newest last. Keys are UTC timestamps, so they sort ' +
         'chronologically, and one is what `restore_resource` takes for an exact point.',
       inputSchema: { project, resource },
-      annotations: READ,
+      annotations: reads('List backups'),
     },
     ({ project, resource }) =>
       attempt(() => api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/backups`)),
@@ -703,12 +793,12 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'backup_resource',
     {
-      title: 'Take a backup now',
+      title: 'Back up resource',
       description:
         'A snapshot at this moment, on top of the nightly ones. Rate limited, so do not call it ' +
         'in a loop.',
       inputSchema: { project, resource },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: writes('Back up resource', { idempotent: false }),
     },
     ({ project, resource }) =>
       attempt(() =>
@@ -722,7 +812,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'restore_resource',
     {
-      title: 'Restore a backup into a new resource',
+      title: 'Restore backup into a new resource',
       description:
         'Fills a **new** resource from another one\'s backup and never overwrites anything — ' +
         'which is why it needs no approval and cannot lose data.\n' +
@@ -745,7 +835,7 @@ export function registerTools(server: McpServer, api: Api): void {
         source: z.string().optional().describe('the resource whose newest backup to use'),
         backup: z.string().optional().describe('one exact key from `backups`, for a specific point in time'),
       },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: writes('Restore backup into a new resource', { idempotent: false }),
     },
     ({ project, resource, source, backup }) =>
       attempt(() =>
@@ -762,13 +852,13 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'members',
     {
-      title: 'Who can reach a project',
+      title: 'List project members',
       description:
         'The owner and everyone it has been shared with, plus a pending offer of ownership when ' +
         'there is one. The owner is a property of the project rather than a row in the list: one ' +
         'account pays, and that is not a role granted or revoked — it moves only through `transfer`.',
       inputSchema: { project },
-      annotations: READ,
+      annotations: reads('List project members'),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/members`)),
   );
@@ -776,7 +866,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'share',
     {
-      title: 'Give somebody access',
+      title: 'Share project',
       description:
         'Grants a role on a project, or changes one somebody already has. An `editor` can do ' +
         'everything the owner can except be billed for it; a `viewer` reads.',
@@ -785,7 +875,7 @@ export function registerTools(server: McpServer, api: Api): void {
         email: z.string().describe('their email address'),
         role: z.string().describe('editor or viewer'),
       },
-      annotations: WRITE,
+      annotations: writes('Share project', { idempotent: true }),
     },
     ({ project, email, role }) =>
       attempt(() =>
@@ -796,10 +886,10 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'unshare',
     {
-      title: 'Take access away',
+      title: 'Unshare project',
       description: 'Removes somebody from a project. The owner cannot be removed.',
       inputSchema: { project, email: z.string().describe('their email address') },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: writes('Unshare project', { idempotent: true }),
     },
     ({ project, email }) =>
       attempt(() =>
@@ -810,14 +900,16 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'transfer',
     {
-      title: 'Offer a project, and its bill, to somebody',
+      title: 'Transfer project ownership',
       description:
         'Offers ownership to somebody the project is already shared with. This does not hand it ' +
         'over: it emails them, and the project moves only when they press the button, which may ' +
         'be days later or never. Two humans are involved — the owner is asked to approve the ' +
         'offer in their own inbox first (`approval_required`), and the recipient accepts in ' +
         'theirs. When it lands, the previous owner stays on as an editor and nothing restarts. ' +
-        'Never call this unless the user has asked for the project to change hands.',
+        'Never call this unless the user has asked for the project to change hands. Expect ' +
+        '`approval_required`: the call completes only when the account owner clicks the button ' +
+        'emailed to them, so explain the pause to your user instead of retrying.',
       inputSchema: {
         project,
         email: z.string().describe('their email address; they must already be a member'),
@@ -826,7 +918,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .optional()
           .describe('what to call it in their account, if they already have one by this name'),
       },
-      annotations: WRITE,
+      annotations: destroys('Transfer project ownership', { idempotent: true }),
     },
     ({ project, email, name }) =>
       attempt(() =>
@@ -840,13 +932,13 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'untransfer',
     {
-      title: 'Take back an offer of ownership',
+      title: 'Withdraw ownership offer',
       description:
         'Withdraws an offer that has not been accepted, and kills the link in the recipient\'s ' +
         'inbox. There is no undoing one that has been accepted: the project is theirs, and only ' +
         'they can offer it back.',
       inputSchema: { project },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: writes('Withdraw ownership offer', { idempotent: true }),
     },
     ({ project }) =>
       attempt(() => api.call(`/v1/projects/${seg(project)}/transfer`, { method: 'DELETE' })),
@@ -857,13 +949,13 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'billing',
     {
-      title: 'Where the account stands',
+      title: 'Show billing',
       description:
         'Balance, burn rate and runway — how long what is running now can keep running. A ' +
         'suspended account refuses every deploy, and a runway measured in hours is worth telling ' +
         'your human about before it becomes an outage.',
       inputSchema: {},
-      annotations: READ,
+      annotations: reads('Show billing'),
     },
     () => attempt(() => api.call('/v1/billing')),
   );
@@ -871,13 +963,13 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'billing_history',
     {
-      title: 'The ledger',
+      title: 'Show billing history',
       description:
         'The rows the balance is folded from: metered usage every quarter hour, top-ups, credits ' +
         'and adjustments. Each carries a sentence written by the engine and an amount already ' +
         'rendered, so nothing here needs re-computing.',
       inputSchema: {},
-      annotations: READ,
+      annotations: reads('Show billing history'),
     },
     () => attempt(() => api.call('/v1/billing/history')),
   );
@@ -887,12 +979,12 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'credentials',
     {
-      title: 'What has access to this account',
+      title: 'List credentials',
       description:
         'Every credential, what it may do, when it was last used and when it expires. The one ' +
         'making this very call is marked `current`.',
       inputSchema: {},
-      annotations: READ,
+      annotations: reads('List credentials'),
     },
     () => attempt(() => api.call('/v1/credentials')),
   );
@@ -900,7 +992,7 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'create_credential',
     {
-      title: 'Mint a credential for CI',
+      title: 'Create credential',
       description:
         'Issues a second credential from this one, for a pipeline that has no inbox to approve ' +
         'anything with. It can deploy and nothing else, it expires, and it cannot mint another — ' +
@@ -916,7 +1008,7 @@ export function registerTools(server: McpServer, api: Api): void {
           ),
         expires_in_days: z.number().int().optional().describe('1 to 365. Absent takes the default.'),
       },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: writes('Create credential', { idempotent: false }),
     },
     ({ name, expires_in_days }) =>
       attempt(() =>
@@ -930,10 +1022,10 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'revoke_credential',
     {
-      title: 'Take a credential away',
+      title: 'Revoke credential',
       description: 'Stops a credential working immediately. `credentials` gives the id.',
       inputSchema: { id: z.number().int().describe('the id from `credentials`') },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: destroys('Revoke credential', { idempotent: true }),
     },
     ({ id }) => attempt(() => api.call(`/v1/credentials/${id}`, { method: 'DELETE' })),
   );
@@ -950,14 +1042,16 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'destroy_service',
     {
-      title: 'Delete a service (needs a human)',
+      title: 'Destroy service',
       description:
         'Answers `approval_required` and emails the account owner a button. Call it again after ' +
         'they have clicked, within the window the hint names. Deletes the service, its ingress ' +
         'and its volume; the images stay in the registry. Jobs go the same way, taking their ' +
-        'kept runs with them.',
+        'kept runs with them. Expect `approval_required`: the call completes only when the ' +
+        'account owner clicks the button emailed to them, so explain the pause to your user ' +
+        'instead of retrying.',
       inputSchema: { project, service },
-      annotations: DESTROY,
+      annotations: destroys('Destroy service', { idempotent: true }),
     },
     ({ project, service }) =>
       attempt(() =>
@@ -968,13 +1062,15 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'destroy_resource',
     {
-      title: 'Delete a resource and its data (needs a human)',
+      title: 'Destroy resource',
       description:
         'Answers `approval_required` and emails the account owner a button. Call it again after ' +
         'they have clicked. **The data goes with it** — take a backup first if there is any doubt, ' +
-        'and note that services still declaring it will start failing to connect.',
+        'and note that services still declaring it will start failing to connect. Expect ' +
+        '`approval_required`: the call completes only when the account owner clicks the button ' +
+        'emailed to them, so explain the pause to your user instead of retrying.',
       inputSchema: { project, resource },
-      annotations: DESTROY,
+      annotations: destroys('Destroy resource', { idempotent: true }),
     },
     ({ project, resource }) =>
       attempt(() =>
@@ -985,13 +1081,15 @@ export function registerTools(server: McpServer, api: Api): void {
   server.registerTool(
     'destroy_project',
     {
-      title: 'Delete a whole project (needs a human)',
+      title: 'Destroy project',
       description:
         'Everything in it: every service, every resource, every volume, every backup. Answers ' +
         '`approval_required` and emails the account owner a button; call it again after they have ' +
-        'clicked. Say plainly what will be lost before you ask for this.',
+        'clicked. Say plainly what will be lost before you ask for this. Expect ' +
+        '`approval_required`: the call completes only when the account owner clicks the button ' +
+        'emailed to them, so explain the pause to your user instead of retrying.',
       inputSchema: { project },
-      annotations: DESTROY,
+      annotations: destroys('Destroy project', { idempotent: true }),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}`, { method: 'DELETE' })),
   );

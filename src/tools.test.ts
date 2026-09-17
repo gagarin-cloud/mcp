@@ -16,6 +16,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { Api } from './api.js';
 import { createServer } from './server.js';
+import { APPROVAL_REQUIRED, DESTRUCTIVE_WITHOUT_APPROVAL } from './tools.js';
+import { TOOLS_SNAPSHOT, type SnapshotRow } from './tools.snapshot.js';
 
 type Seen = { url: string; method: string; body: unknown; headers: Record<string, string> };
 
@@ -554,6 +556,205 @@ test('a transfer with no new name asks for no rename', async () => {
     await kit.client.callTool({ name: 'untransfer', arguments: { project: 'shop' } });
     assert.equal(kit.seen[1]?.method, 'DELETE');
     assert.equal(kit.seen[1]?.url, 'https://api.example/v1/projects/shop/transfer');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+/*
+  Annotations.
+
+  These five hints are how a client decides whether to stop and ask a human
+  before calling something, so a wrong one is not a cosmetic bug: `deploy`
+  marked destructive makes an agent ask permission on every ship, and a
+  `set_deps` marked safe lets it withdraw an edge without anybody being warned
+  that the call is about to stop dead and mail the owner.
+
+  The spec's defaults are the reason all five are asserted rather than the
+  interesting ones: `destructiveHint` and `openWorldHint` default TRUE and
+  `idempotentHint` defaults false, so a tool registered without annotations is
+  presumed to be an open-world destroyer and nothing complains.
+*/
+
+test('every tool carries all five annotations', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    assert.ok(tools.length > 0, 'no tools were registered');
+    for (const tool of tools) {
+      const a = tool.annotations;
+      assert.ok(a, `${tool.name} has no annotations at all`);
+      assert.equal(typeof a.title, 'string', `${tool.name} needs an annotation title`);
+      assert.ok(String(a.title).length > 0, `${tool.name} needs a non-empty annotation title`);
+      for (const hint of ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'] as const) {
+        assert.equal(
+          typeof a[hint],
+          'boolean',
+          `${tool.name} leaves ${hint} to its default, which is the wrong answer`,
+        );
+      }
+      // A read that also destroys is a contradiction a client cannot act on.
+      if (a.readOnlyHint) {
+        assert.equal(a.destructiveHint, false, `${tool.name} cannot be read-only and destructive`);
+      }
+    }
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// Nothing here reaches past gagarin. A true here would tell a client the tool
+// touches an unbounded external world, and the whole surface is one account.
+test('no tool claims an open world', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const open = tools.filter((t) => t.annotations?.openWorldHint !== false).map((t) => t.name);
+    assert.deepEqual(open, [], `these claim an open world: ${open.join(', ')}`);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+/*
+  The invariant this whole classification exists to hold.
+
+  An operation the engine refuses with `approval_required` stops dead and emails
+  the account owner a button. An agent that was told the tool is safe will call
+  it, be refused, and — if it has not been told why — retry. So every one of
+  them is destructiveHint true, and the set is taken from APPROVAL_REQUIRED,
+  which is the engine's own `requireElevation` call sites, rather than from a
+  list written again here.
+
+  It is a subset rather than an equality because two tools are destructive
+  without asking anybody: see DESTRUCTIVE_WITHOUT_APPROVAL. Those two are named,
+  so destructive-and-silent cannot be added to by accident — a new one fails
+  here until somebody puts it in that set on purpose.
+*/
+test('the tools that need a human are exactly the destructive ones', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const destructive = tools
+      .filter((t) => t.annotations?.destructiveHint === true)
+      .map((t) => t.name)
+      .sort();
+
+    assert.deepEqual(
+      destructive,
+      [...APPROVAL_REQUIRED, ...DESTRUCTIVE_WITHOUT_APPROVAL].sort(),
+      'the destructive tools no longer match the operations that need approval',
+    );
+
+    // And the approval table names tools that exist. A rename that missed it
+    // would otherwise leave the invariant asserting something about nothing.
+    const names = new Set(tools.map((t) => t.name));
+    for (const name of [...APPROVAL_REQUIRED, ...DESTRUCTIVE_WITHOUT_APPROVAL]) {
+      assert.ok(names.has(name), `${name} is in the approval tables but is not a tool`);
+    }
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// The pause, in the words an agent reads. Only the tools that really wait for a
+// click say so — promising an email that never arrives would be worse than
+// saying nothing, which is why the two silent destroyers are excluded.
+test('every tool that waits for a human says so in its description', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    for (const name of APPROVAL_REQUIRED) {
+      const tool = tools.find((t) => t.name === name)!;
+      assert.match(
+        String(tool.description),
+        /approval_required/,
+        `${name} pauses for a human and does not say so`,
+      );
+    }
+    for (const name of DESTRUCTIVE_WITHOUT_APPROVAL) {
+      const tool = tools.find((t) => t.name === name)!;
+      assert.doesNotMatch(
+        String(tool.description),
+        /approval_required/,
+        `${name} does not go through approval and must not promise that it does`,
+      );
+    }
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// The graph is the firewall, so `[]` is not an empty request — it is every
+// connection cut. An agent that reads this as a no-op causes an outage that
+// reports nothing.
+test('set_deps says what an empty list does', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const setDeps = tools.find((t) => t.name === 'set_deps')!;
+    assert.match(String(setDeps.description), /empty list disconnects/i);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// Read-only, and yet it hands live credentials to whatever is reading. The
+// annotation cannot carry that; the description has to.
+test('resource_secrets is read-only and says it returns secrets', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const secrets = tools.find((t) => t.name === 'resource_secrets')!;
+    assert.equal(secrets.annotations?.readOnlyHint, true);
+    assert.match(String(secrets.description), /credentials|secret/i);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// restore_resource fills a new resource and overwrites nothing, which is the
+// whole reason it is not destructive. If that ever stops being true, this and
+// its annotation both have to change.
+test('restore_resource is non-destructive and says why', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const restore = tools.find((t) => t.name === 'restore_resource')!;
+    assert.equal(restore.annotations?.destructiveHint, false);
+    assert.match(String(restore.description), /never overwrites/i);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+/*
+  The snapshot, so a tool cannot arrive unclassified.
+
+  Registering one without annotations is a two-line change that reads as
+  finished and quietly tells every client the thing is an open-world destroyer.
+  This is what makes that a failing build with the tool's name in it.
+*/
+test('tools/list matches the recorded annotations', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const live: Record<string, SnapshotRow> = {};
+    for (const t of [...tools].sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      const a = t.annotations!;
+      live[t.name] = [
+        String(a.title),
+        a.readOnlyHint as boolean,
+        a.destructiveHint as boolean,
+        a.idempotentHint as boolean,
+        a.openWorldHint as boolean,
+      ];
+    }
+    assert.deepEqual(
+      live,
+      TOOLS_SNAPSHOT,
+      'the tools changed; check the classification by hand, then update src/tools.snapshot.ts',
+    );
   } finally {
     await kit[Symbol.asyncDispose]();
   }
