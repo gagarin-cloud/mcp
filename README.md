@@ -34,14 +34,14 @@ Claude, ChatGPT and Claude Code prompt for sign-in when they connect: the client
 opens a browser and the human signs in with GitHub or Google. A request with no
 credential answers `401` with a `WWW-Authenticate` header pointing at
 `/.well-known/oauth-protected-resource/mcp`, which names `api.gagarin.cloud` as
-the authorization server. This server validates nothing itself; the engine does,
-on every call. `GAGARIN_MCP_ORIGIN` and `GAGARIN_ISSUER` override the two public
+the authorization server. This server decides nothing about a token itself; the
+engine does, on every call. `GAGARIN_MCP_ORIGIN` and `GAGARIN_ISSUER` override the two public
 names for a development setup; they are separate from `GAGARIN_API`, which in
 the cluster is the in-cluster Service and no address a client could sign in at.
 
 **Remote, with a credential in a header.** For a client that cannot sign in
 over OAuth, or a machine that should not: a credential from `gg login` or
-`gg creds mint`.
+`gg creds create`.
 
 ```jsonc
 {
@@ -58,9 +58,13 @@ over OAuth, or a machine that should not: a credential from `gg login` or
 **Local, over stdio.** `npx -y @gagarin-cloud/mcp` reads the file `gg login`
 wrote, or `GAGARIN_TOKEN` if it is set.
 
-A credential that has expired or been revoked is not caught at the door: the
-engine refuses the call and the tool answers `[unauthorized]`. Reconnecting
-signs in again.
+A credential that has expired or been revoked is caught at the door too, because
+a client signs in again only on an HTTP 401: every POST asks the engine
+`/v1/whoami` with the caller's token first, and the engine's 401 becomes a 401
+with `error="invalid_token"`. One extra in-cluster call per request, and no
+cache — a remembered token is a stored token, and this server stores none. Any
+other failure there (the engine unreachable, a 5xx) is not a sign-in problem, so
+the request goes on and each tool reports it with the engine's own code.
 
 ## What is here
 

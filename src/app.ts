@@ -10,7 +10,7 @@
 import express, { type Express, type Request, type Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
-import { Api, VERSION } from './api.js';
+import { Api, ApiFailure, VERSION } from './api.js';
 import { createServer } from './server.js';
 
 export type AppConfig = {
@@ -120,8 +120,9 @@ export function createApp(config: AppConfig): Express {
     SDK's metadata router: that router also serves authorization-server metadata
     and expects to own it, and here the authorization server is the engine.
 
-    Nothing here validates a token, and that is not an omission. The engine is
-    the one place that knows whether a credential is good; the MCP spec's worry
+    Nothing here judges a token, and that is not an omission — the check below
+    asks the engine rather than deciding. The engine is the one place that knows
+    whether a credential is good; the MCP spec's worry
     about forwarding tokens is a third party between the token and its checker,
     and there is none — the engine accepts tokens issued for this resource name
     precisely because this server is gagarin's API in another shape.
@@ -153,7 +154,7 @@ export function createApp(config: AppConfig): Express {
           `Claude, ChatGPT and Claude Code sign in when they connect: the client\n` +
           `opens a browser and you sign in with GitHub or Google. Nothing to paste.\n\n` +
           `A client that cannot do that can send a credential from \`gg login\` or\n` +
-          `\`gg creds mint\` in a header instead:\n\n` +
+          `\`gg creds create\` in a header instead:\n\n` +
           `  {\n` +
           `    "mcpServers": {\n` +
           `      "gagarin": {\n` +
@@ -169,6 +170,20 @@ export function createApp(config: AppConfig): Express {
           `Documentation:  https://gagarin.cloud/docs\n`,
       );
   });
+
+  /**
+   * The 401 that sends a client to sign in: the pointer to the metadata above,
+   * and, when a credential was sent and refused, RFC 6750's `invalid_token`.
+   * The body is JSON-RPC-shaped, because the caller is a protocol client.
+   */
+  function refuse(res: Response, message: string, error?: 'invalid_token'): void {
+    const params = [`resource_metadata="${metadataUrl}"`, `scope="${SCOPE}"`];
+    if (error) params.push(`error="${error}"`);
+    res
+      .status(401)
+      .setHeader('WWW-Authenticate', `Bearer ${params.join(', ')}`)
+      .json({ jsonrpc: '2.0', error: { code: -32001, message }, id: null });
+  }
 
   /**
    * The protocol endpoint.
@@ -188,32 +203,9 @@ export function createApp(config: AppConfig): Express {
       OAuth flow, so it has to happen here at the transport — a tool result
       saying `[unauthorized]` is something a model reads, not something a client
       acts on.
-
-      Only the *missing* credential is answered this way. A credential that is
-      present but expired or revoked is passed through like any other, and the
-      engine's refusal comes back as a tool error, `[unauthorized]`. Catching it
-      here would mean either asking the engine about every token before every
-      request — a second round trip on every call, to learn what the call itself
-      is about to say — or turning a tool's 401 into an HTTP 401 after the
-      transport has already begun answering, which it cannot. Clients refresh
-      access tokens on their own schedule from `expires_in`, and a stale one
-      reaching here is the exception a reconnect fixes.
     */
     if (!token) {
-      res
-        .status(401)
-        .setHeader(
-          'WWW-Authenticate',
-          `Bearer resource_metadata="${metadataUrl}", scope="${SCOPE}"`,
-        )
-        .json({
-          jsonrpc: '2.0',
-          error: {
-            code: -32001,
-            message: 'this gagarin MCP server needs a credential: sign in over OAuth, or send one in the Authorization header',
-          },
-          id: null,
-        });
+      refuse(res, 'this gagarin MCP server needs a credential: sign in over OAuth, or send one in the Authorization header');
       return;
     }
 
@@ -228,6 +220,40 @@ export function createApp(config: AppConfig): Express {
     // shares one bucket: stricter than intended, never looser, which is the right
     // direction for a mistake in this particular header to fail in.
     const api = new Api(config.api, token, req.ip ? { 'X-Forwarded-For': req.ip } : {});
+
+    /*
+      A credential that is present but expired or revoked has to be a 401 here
+      too, and the only way to know is to ask the engine. A client re-runs its
+      sign-in only on an HTTP 401 carrying WWW-Authenticate; left to a tool, a
+      lapsed access token (they live an hour) would come back as `[unauthorized]`
+      on every call and the connector would stay stuck. A tool's 401 cannot be
+      promoted afterwards, because by then the transport has begun answering.
+
+      So every POST — the only method that carries a message — costs one
+      `whoami` first. It is in-cluster and cheap, and it is one call per
+      request: nothing is remembered between requests, because a cache of
+      tokens that were good a moment ago is a store of tokens, and this server
+      holds none.
+
+      Only the engine's 401 becomes one. Anything else — the engine unreachable,
+      a 5xx, a 403 for a credential that is valid but may do less — goes on to
+      the protocol, where each tool reports its own failure with the engine's
+      code and hint. Turning an outage into a 401 would send a human through a
+      sign-in that cannot fix it; a 503 here would hide the one answer worth
+      having, `[unreachable]` with what to do about it, behind a transport fault
+      a client shows as "could not connect", and would make `platform_health`
+      unaskable at exactly the moment it matters.
+    */
+    if (req.method === 'POST') {
+      try {
+        await api.call('/v1/whoami', { timeoutMs: 10_000 });
+      } catch (err) {
+        if (err instanceof ApiFailure && err.status === 401) {
+          refuse(res, 'this gagarin credential is expired or revoked: sign in again', 'invalid_token');
+          return;
+        }
+      }
+    }
 
     const server = createServer(api);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });

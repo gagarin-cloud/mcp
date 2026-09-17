@@ -94,7 +94,7 @@ read like a platform fault:
 1. \`whoami\` — which account, and may it deploy. If there is no credential:
    over HTTP, the client signs your human in over OAuth when it connects (it
    opens a browser; they sign in with GitHub or Google), or sends a credential
-   from \`gg login\` or \`gg creds mint\` in the Authorization header. Over stdio,
+   from \`gg login\` or \`gg creds create\` in the Authorization header. Over stdio,
    your human runs \`gg login\` on this machine, or GAGARIN_TOKEN is exported.
 2. \`create_project\` — the id it returns is what image paths are built from.
 3. On the machine with the source: \`gg ship <project>/<service>:<port>\`. That

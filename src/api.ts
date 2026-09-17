@@ -59,7 +59,7 @@ export function unauthenticated(): ApiFailure {
     message: 'this MCP server was given no gagarin credential',
     fix_hint:
       'remote: connect by URL and the client signs your human in over OAuth, or send a ' +
-      'credential from `gg login` or `gg creds mint` as `Authorization: Bearer <credential>`; ' +
+      'credential from `gg login` or `gg creds create` as `Authorization: Bearer <credential>`; ' +
       'stdio: have your human run `gg login` on this machine, or export GAGARIN_TOKEN',
   });
 }
