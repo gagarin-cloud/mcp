@@ -1,0 +1,73 @@
+name: registry
+
+# Publishes server.json to the official MCP Registry as cloud.gagarin/gagarin.
+#
+# The registry keeps every version it is given and never takes one back, so this
+# publishes only a version it does not have yet: bump "version" in server.json
+# and merge. A push that leaves the version alone is a no-op, not a failure.
+#
+# ─── how the registry knows this is us ──────────────────────────────────────
+#
+# By DNS. gagarin.cloud carries a TXT record, v=MCPv1 with the public half of an
+# Ed25519 key, and MCP_REGISTRY_KEY is the private half as hex. The record lives
+# in the gagarin repository (infra/scaleway/dns.tf, mcp_registry), not here,
+# because that is where the zone is. Anyone holding the key can publish anything
+# under cloud.gagarin/*, so it is a secret of the `production` environment, like
+# deploy.yml's, and only main can read it.
+
+on:
+  push:
+    branches: [main]
+    paths: [server.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry
+  cancel-in-progress: false
+
+env:
+  PUBLISHER_VERSION: 1.8.1
+  PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+
+jobs:
+  publish:
+    name: server.json → registry.modelcontextprotocol.io
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Is this version new?
+        id: check
+        run: |
+          NAME=$(jq -r .name server.json)
+          VERSION=$(jq -r .version server.json)
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://registry.modelcontextprotocol.io/v0/servers/${NAME/\//%2F}/versions/$VERSION")
+          case "$code" in
+            200) echo "$NAME $VERSION is already published. Bump the version to publish."
+                 echo "new=false" >> "$GITHUB_OUTPUT" ;;
+            404) echo "new=true" >> "$GITHUB_OUTPUT" ;;
+            *)   echo "registry answered $code" >&2; exit 1 ;;
+          esac
+
+      # Pinned and checked rather than "latest": this binary is handed the key.
+      - name: Install mcp-publisher
+        if: steps.check.outputs.new == 'true'
+        run: |
+          f=mcp-publisher_linux_amd64.tar.gz
+          curl -sSfL -o "$f" "https://github.com/modelcontextprotocol/registry/releases/download/v$PUBLISHER_VERSION/$f"
+          echo "$PUBLISHER_SHA256  $f" | sha256sum -c -
+          tar xzf "$f" mcp-publisher
+
+      - name: Publish
+        if: steps.check.outputs.new == 'true'
+        env:
+          MCP_REGISTRY_KEY: ${{ secrets.MCP_REGISTRY_KEY }}
+        run: |
+          ./mcp-publisher login dns --domain gagarin.cloud --private-key "$MCP_REGISTRY_KEY"
+          ./mcp-publisher publish
