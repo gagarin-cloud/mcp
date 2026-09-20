@@ -77,10 +77,32 @@ function ok(value: unknown): ToolResult {
  */
 function fail(err: unknown): ToolResult {
   if (err instanceof ApiFailure) {
-    return { content: [{ type: 'text', text: err.render() }], isError: true };
+    return { content: [{ type: 'text', text: err.render() + besides(err) }], isError: true };
   }
   const message = err instanceof Error ? err.message : String(err);
   return { content: [{ type: 'text', text: `[internal] ${message}` }], isError: true };
+}
+
+/**
+ * Whatever the engine put in a refusal beyond the envelope, so it is not lost.
+ *
+ * One refusal carries more than a code and a hint: `memory_duplicate` answers
+ * the near-duplicates a `remember` collided with, because the right next move
+ * is to update or link one of *those*, and an agent cannot do that without
+ * seeing them. The envelope stays exactly as `gg` prints it; this is appended
+ * after it. If the engine passed the memory service's own `text` through, that
+ * is the rendering; anything else is shown as the engine's JSON, like an answer.
+ */
+function besides(err: ApiFailure): string {
+  const body = err.body;
+  if (!body || typeof body !== 'object') return '';
+  const { error, ...rest } = body as Record<string, unknown>;
+  const { code: _c, message: _m, fix_hint: _h, ...inner } =
+    error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
+  const extra = { ...inner, ...rest };
+  if (Object.keys(extra).length === 0) return '';
+  if (typeof extra.text === 'string') return `\n${extra.text}`;
+  return `\n${JSON.stringify(extra, null, 2)}`;
 }
 
 /** Run a tool body, and turn any gagarin failure into the contract above. */
@@ -90,6 +112,45 @@ async function attempt(fn: () => Promise<unknown>): Promise<ToolResult> {
   } catch (err) {
     return fail(err);
   }
+}
+
+/**
+ * The memory service's own rendering, when the engine passed one through.
+ *
+ * Every memory read is packed to a token budget and answered twice over: as
+ * JSON, and as `text` — the compact plain-text form the service made to fit that
+ * budget. Returning both would double the tokens the service exists to save, so
+ * a memory tool returns `text` alone. It is still the engine's rendering and not
+ * ours; there is no second renderer here. A body with no `text` is returned as
+ * JSON, like every other answer.
+ */
+function rendered(value: unknown): unknown {
+  if (value && typeof value === 'object' && typeof (value as { text?: unknown }).text === 'string') {
+    return (value as { text: string }).text;
+  }
+  return value;
+}
+
+/**
+ * A query string from named values, or nothing.
+ *
+ * A list becomes one comma-joined parameter (`kinds=gotcha,decision`) — the
+ * shape the memory routes read — with each element escaped on its own so a
+ * value holding a comma cannot become two. Absent and empty values are left
+ * out rather than sent as `k=undefined`, which the engine would refuse.
+ */
+function qs(params: Record<string, string | number | boolean | readonly string[] | undefined>): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      parts.push(`${key}=${value.map((v) => encodeURIComponent(String(v))).join(',')}`);
+    } else {
+      parts.push(`${key}=${encodeURIComponent(String(value))}`);
+    }
+  }
+  return parts.length ? `?${parts.join('&')}` : '';
 }
 
 /*
@@ -234,7 +295,9 @@ export function registerTools(server: McpServer, api: Api): void {
         'Projects this account owns or has been shared with, and the role on each. A `viewer` ' +
         'role means every deploy will be refused, which is worth knowing before the attempt. ' +
         'Names are unique only within one account, so two rows can share a name — the id tells ' +
-        'them apart, and every other tool takes either.',
+        'them apart, and every other tool takes either. Once you know which project a repository ' +
+        'is, note its id and name in `.gagarin.json` at the repository root for the next session; ' +
+        'if that file is already there, read it before asking here.',
       inputSchema: {},
       annotations: reads('List projects'),
     },
@@ -247,7 +310,10 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'Create project',
       description:
         'A project is the unit of naming, access and billing: everything else lives inside one. ' +
-        'Returns its id, which is what image paths are built from.',
+        'Returns its id, which is what image paths are built from. Note that id and the name in ' +
+        '`.gagarin.json` at the repository root — `{ "project": { "id": "…", "name": "…" } }` — ' +
+        'so the next session knows whose briefing to ask for; it is a note, not configuration, ' +
+        'and no tool reads it.',
       inputSchema: {
         name: z
           .string()
@@ -1028,6 +1094,256 @@ export function registerTools(server: McpServer, api: Api): void {
       annotations: destroys('Revoke credential', { idempotent: true }),
     },
     ({ id }) => attempt(() => api.call(`/v1/credentials/${id}`, { method: 'DELETE' })),
+  );
+
+  // ─── memory ──────────────────────────────────────────────────────────────
+  //
+  // Every project carries a memory: small durable facts an agent saves about a
+  // codebase so the next session does not rediscover them. It is a built-in of
+  // the project, like its registry — not a resource, and reachable only through
+  // these tools. Each one is still one call to the engine with the caller's own
+  // credential; the engine decides who may read and who may write.
+  //
+  // What comes back is the memory service's `text`: a rendering packed to a
+  // token budget. That is the whole point of the thing, and returning the JSON
+  // beside it would spend twice what it saves. See `rendered`.
+  //
+  // No numeric limit from the service is copied into a schema here — how long a
+  // title may be, how many tags, how many links. The engine enforces them and
+  // its refusals name them. The list of kinds is in a description only because
+  // an agent cannot guess it and the refusal for a wrong one arrives after the
+  // body was written.
+
+  const memoryId = z.number().int().describe('a memory id, the number after # in any listing');
+  const memoryBudget = z
+    .number()
+    .int()
+    .optional()
+    .describe('max tokens to return. Absent takes the server default; the answer never exceeds it.');
+  const memoryTags = z
+    .array(z.string())
+    .optional()
+    .describe('short lowercase labels. NOT encrypted at rest — never put a secret in one.');
+  const memoryPaths = z
+    .array(z.string())
+    .optional()
+    .describe('files or directories this is about, relative to the repository. Not encrypted.');
+
+  server.registerTool(
+    'memory_briefing',
+    {
+      title: 'Read project briefing',
+      description:
+        'What is known about a project, packed to a token budget: pinned and top-ranked memories ' +
+        'in full, the rest as one-line index entries with their ids, and an overview of kinds and ' +
+        'tags. **Call this first when starting work on a project**, before reading code — it is ' +
+        'what the last session left for this one. Answers the memory service\'s own compact ' +
+        'text, not JSON. Needs viewer.',
+      inputSchema: { project, budget: memoryBudget },
+      annotations: reads('Read project briefing'),
+    },
+    ({ project, budget }) =>
+      attempt(async () =>
+        rendered(await api.call(`/v1/projects/${seg(project)}/memory/briefing${qs({ budget })}`)),
+      ),
+  );
+
+  server.registerTool(
+    'memory_search',
+    {
+      title: 'Search project memory',
+      description:
+        'Hybrid semantic and keyword search over a project\'s memories: the top hits in full, the ' +
+        'rest as index lines, plus the strongest linked neighbours of the top hits. **Search here ' +
+        'before exploring code** — a question about why something is the way it is has often been ' +
+        'answered already. With no `query` it browses by rank, and the filters narrow either. An ' +
+        'exact identifier is found by keyword; a paraphrase by meaning. Needs viewer.',
+      inputSchema: {
+        project,
+        query: z.string().optional().describe('a question or keywords. Absent browses by rank.'),
+        k: z.number().int().optional().describe('how many hits to rank. Absent takes the default.'),
+        kinds: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'only these kinds: overview, architecture, decision, convention, gotcha, howto, ' +
+              'reference, state',
+          ),
+        tags: z.array(z.string()).optional().describe('only memories carrying any of these tags'),
+        paths: z
+          .array(z.string())
+          .optional()
+          .describe('only memories on, above or below these files or directories'),
+        budget: memoryBudget,
+      },
+      annotations: reads('Search project memory'),
+    },
+    ({ project, ...params }) =>
+      attempt(async () => rendered(await api.call(`/v1/projects/${seg(project)}/memory${qs(params)}`))),
+  );
+
+  server.registerTool(
+    'memory_get',
+    {
+      title: 'Read memories in full',
+      description:
+        'The full text of the memories named, with the links each one carries. For the ids an ' +
+        'index line or a search gave you; reading two linked memories together strengthens the ' +
+        'link between them. Needs viewer.',
+      inputSchema: { project, ids: z.array(memoryId).describe('the memories to read') },
+      annotations: reads('Read memories in full'),
+    },
+    ({ project, ids }) =>
+      attempt(async () =>
+        rendered(
+          await api.call(`/v1/projects/${seg(project)}/memory${qs({ ids: ids.map(String) })}`),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'memory_related',
+    {
+      title: 'Follow memory links',
+      description:
+        'Walks the links out from one memory: everything reachable within `hops`, nearest and ' +
+        'strongest first, packed to the budget. Links are undirected, and following them makes ' +
+        'them stronger, so the paths agents use come first next time. Needs viewer.',
+      inputSchema: {
+        project,
+        id: memoryId,
+        hops: z.number().int().optional().describe('how far to walk, at most 3. Absent takes the default.'),
+        budget: memoryBudget,
+      },
+      annotations: reads('Follow memory links'),
+    },
+    ({ project, id, ...params }) =>
+      attempt(async () =>
+        rendered(await api.call(`/v1/projects/${seg(project)}/memory/${id}/related${qs(params)}`)),
+      ),
+  );
+
+  server.registerTool(
+    'remember',
+    {
+      title: 'Save a memory',
+      description:
+        'Saves one durable fact about the project for every later session: a decision and why, ' +
+        'a convention, a gotcha, how something is done, where something lives. **One fact per ' +
+        'memory, in English**, with a title a future reader can pick from an index line. ' +
+        'Remember what a session would otherwise have to rediscover; do not remember what the ' +
+        'code says plainly, or anything transient.\n' +
+        'A near-duplicate is refused with `memory_duplicate`, and the refusal lists the memories ' +
+        'it collided with — `memory_update` one of those, or pass `supersedes` to replace it, ' +
+        'rather than `force`, which keeps both and makes every later search worse. The answer ' +
+        'names the id, and may suggest memories to link and warn about length or language.\n' +
+        'Title, body and source are encrypted at rest; kind, tags and paths are not. **Never put ' +
+        'a secret in a tag or a path, and do not store credentials in memory at all** — they ' +
+        'belong in an `external` resource. Needs editor.',
+      inputSchema: {
+        project,
+        kind: z
+          .string()
+          .describe(
+            'one of: overview, architecture, decision, convention, gotcha, howto, reference, ' +
+              'state. `state` is for what is currently true and expected to change.',
+          ),
+        title: z.string().describe('one line, specific enough to pick from an index'),
+        body: z.string().describe('markdown. The fact, and why, in as few tokens as it takes.'),
+        tags: memoryTags,
+        paths: memoryPaths,
+        pinned: z.boolean().optional().describe('always include in briefings. For the few things every session needs.'),
+        importance: z.number().int().optional().describe('1 to 5; ranks it against the rest. Absent is the middle.'),
+        links: z.array(memoryId).optional().describe('memories this one relates to'),
+        link_note: z.string().optional().describe('why they relate, one short line'),
+        supersedes: memoryId.optional().describe('the memory this replaces; its links move to the new one'),
+        force: z.boolean().optional().describe('save even beside a near-duplicate. Almost never right.'),
+        source: z.string().optional().describe('who or what wrote it, e.g. the agent and session'),
+      },
+      annotations: writes('Save a memory', { idempotent: false }),
+    },
+    ({ project, ...body }) =>
+      attempt(async () =>
+        rendered(await api.call(`/v1/projects/${seg(project)}/memory`, { method: 'POST', body })),
+      ),
+  );
+
+  server.registerTool(
+    'memory_update',
+    {
+      title: 'Update a memory',
+      description:
+        'Changes the fields named and leaves the rest alone: correct a body, retitle, retag, ' +
+        'change the kind, pin or unpin, or archive with `status: "archived"` — an archived ' +
+        'memory leaves every briefing, search and link walk but is not deleted. This is the ' +
+        'right answer to a `memory_duplicate` refusal when the existing memory is the one to ' +
+        'amend. Tags and paths are not encrypted; keep secrets out of them. Needs editor.',
+      inputSchema: {
+        project,
+        id: memoryId,
+        title: z.string().optional(),
+        body: z.string().optional().describe('markdown, replacing the whole body'),
+        kind: z.string().optional().describe('one of the kinds `remember` takes'),
+        tags: memoryTags.describe('replaces the whole list. Not encrypted.'),
+        paths: memoryPaths.describe('replaces the whole list. Not encrypted.'),
+        pinned: z.boolean().optional(),
+        importance: z.number().int().optional().describe('1 to 5'),
+        status: z.string().optional().describe('`active` or `archived`'),
+        source: z.string().optional(),
+      },
+      annotations: writes('Update a memory', { idempotent: true }),
+    },
+    ({ project, id, ...body }) =>
+      attempt(async () =>
+        rendered(
+          await api.call(`/v1/projects/${seg(project)}/memory/${id}`, { method: 'PATCH', body }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'memory_link',
+    {
+      title: 'Link memories',
+      description:
+        'Associates one memory with others. Links are undirected, so linking A to B is linking B ' +
+        'to A; restating one is a no-op, and a `note` says why they relate. A memory cannot link ' +
+        'to itself or across projects, and each has a cap the refusal names. `memory_unlink` ' +
+        'takes one away. Needs editor.',
+      inputSchema: {
+        project,
+        id: memoryId,
+        to: z.array(memoryId).describe('the memories to link it with'),
+        note: z.string().optional().describe('why they relate, one short line. Not encrypted.'),
+      },
+      annotations: writes('Link memories', { idempotent: true }),
+    },
+    ({ project, id, ...body }) =>
+      attempt(async () =>
+        rendered(
+          await api.call(`/v1/projects/${seg(project)}/memory/${id}/links`, { method: 'POST', body }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'memory_unlink',
+    {
+      title: 'Unlink memories',
+      description:
+        'Removes the link between two memories. Undirected, so the order of the two does not ' +
+        'matter; removing a link that is not there changes nothing. Needs editor.',
+      inputSchema: { project, id: memoryId, other: memoryId.describe('the memory at the other end') },
+      annotations: writes('Unlink memories', { idempotent: true }),
+    },
+    ({ project, id, other }) =>
+      attempt(async () =>
+        rendered(
+          await api.call(`/v1/projects/${seg(project)}/memory/${id}/links/${other}`, {
+            method: 'DELETE',
+          }),
+        ),
+      ),
   );
 
   // ─── deletion ────────────────────────────────────────────────────────────

@@ -34,6 +34,11 @@ export class ApiFailure extends Error {
   constructor(
     readonly status: number,
     readonly error: ApiError,
+    /** The whole body the engine answered with, when there was one. Almost
+     *  always just `{ error }`, but a `memory_duplicate` refusal also carries
+     *  the near-duplicates beside it, and a caller has to be able to see those
+     *  to act on the refusal. Kept as sent; nothing here interprets it. */
+    readonly body: unknown = undefined,
   ) {
     super(error.message);
     this.name = 'ApiFailure';
@@ -183,6 +188,7 @@ export class Api {
         throw new ApiFailure(
           res.status,
           parsed?.error ?? { code: 'unknown', message: text || `HTTP ${res.status}` },
+          parsed,
         );
       }
       return parsed as T;
@@ -201,7 +207,7 @@ export class Api {
  * two places. api.test.ts asserts this equals the manifest, so the two
  * cannot drift without a test saying so.
  */
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 
 export function userAgent(): string {
   return `gagarin-mcp/${VERSION}`;

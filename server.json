@@ -3,7 +3,7 @@
   "name": "cloud.gagarin/gagarin",
   "title": "Gagarin Cloud",
   "description": "Deploy and operate containers on Gagarin Cloud: services, databases, domains, logs, rollbacks.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "websiteUrl": "https://gagarin.cloud",
   "repository": {
     "url": "https://github.com/gagarin-cloud/mcp",
