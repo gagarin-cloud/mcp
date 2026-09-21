@@ -76,12 +76,37 @@ the request goes on and each tool reports it with the engine's own code.
 |---|---|
 | `src/api.ts` | the whole of this server's contact with gagarin: one request, one error envelope |
 | `src/tools.ts` | every tool — each one a path, a shape, and the rule a caller needs before using it |
-| `src/server.ts` | what a client is told on connect, and the `gagarin://guide` resource |
+| `src/server.ts` | what a client is told on connect, and the `gagarin://guide` resource — including how memory is used and the `.gagarin.json` note that says which project a repository is |
 | `src/app.ts` | mcp.gagarin.cloud: stateless streamable HTTP, one server per request, and the OAuth protected-resource metadata |
 | `src/http.ts` | the listener, its configuration and its drain |
 | `src/stdio.ts` | the same tools over a pipe, for developing against from a clone |
 | `src/credentials.ts` | reads the credential file `gg login` wrote; never writes one |
 | `Dockerfile` | the image mcp.gagarin.cloud runs. Its build stage runs the tests |
+
+## Project memory
+
+Every project carries a memory: small, durable facts an agent saves about a
+codebase — a decision and why, a convention, a gotcha — so the next session does
+not rediscover them. It is a built-in of the project, like its registry, and
+**these tools are the only way to reach it**: the memory service has no address
+of its own, no `gg` command and no console page. The engine decides who may
+read (viewer) and who may write (editor), on every call, like everything else.
+
+| tool | what it does |
+|---|---|
+| `memory_briefing` | what is known about a project, packed to a token budget — the first call on a project |
+| `memory_search` | hybrid semantic + keyword search; no query browses by rank |
+| `memory_get` | memories in full, by id |
+| `memory_related` | walk the links out from one memory |
+| `remember` | save one fact; a near-duplicate is refused with the memories it collided with |
+| `memory_update` | change fields, pin, or archive |
+| `memory_link` / `memory_unlink` | associate two memories, or stop |
+
+These answer the memory service's own `text` — a plain-text rendering packed to
+the budget — rather than the JSON around it. That is a narrower case of the rule
+below, not an exception to it: the rendering is still the engine's, and returning
+both would spend twice the tokens the service exists to save. A body without
+`text` comes back as JSON like any other answer.
 
 ## It is a translator, and nothing else
 
@@ -102,7 +127,9 @@ Two consequences worth stating, because both look like omissions:
   differently. A third renderer here would be a third opinion to keep in step.
 - **Errors are `[code] message` with a `hint:` line**, which is what `gg` prints.
   One format, so an agent that has read the gagarin skill recognises what comes
-  back here without being taught a second one.
+  back here without being taught a second one. When the engine sends more than
+  the envelope — a `memory_duplicate` carries the near-duplicates — that is
+  appended after the hint rather than dropped.
 
 ## What it deliberately cannot do
 

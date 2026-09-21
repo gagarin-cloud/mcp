@@ -759,3 +759,314 @@ test('tools/list matches the recorded annotations', async () => {
     await kit[Symbol.asyncDispose]();
   }
 });
+
+/*
+  Project memory.
+
+  Eight tools, each one path on the engine, and two things about them that are
+  easy to be quietly wrong about: the query string a search or a get is built
+  from — a list has to arrive comma-joined or the filter silently matches
+  nothing — and what comes back. A memory answer is packed to a token budget
+  and carries `text`, the service's own compact rendering; returning the JSON
+  beside it would spend twice what the service exists to save. So these assert
+  the URL, and that the tool answers `text` alone.
+*/
+test('a briefing is one GET with its budget, and answers the rendered text', async () => {
+  const kit = await connected(() =>
+    json({ text: '# shop\n#1 overview · What shop is · 40t', project: 'abc123', memories: [] }),
+  );
+  try {
+    const result = await kit.client.callTool({
+      name: 'memory_briefing',
+      arguments: { project: 'shop', budget: 800 },
+    });
+    assert.equal(kit.seen[0]?.method, 'GET');
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/memory/briefing?budget=800');
+    // The text and nothing else — no JSON envelope repeating it.
+    assert.equal(textOf(result), '# shop\n#1 overview · What shop is · 40t');
+
+    // Absent budget is absent, not `budget=undefined`.
+    await kit.client.callTool({ name: 'memory_briefing', arguments: { project: 'shop' } });
+    assert.equal(kit.seen[1]?.url, 'https://api.example/v1/projects/shop/memory/briefing');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('a search joins its lists with commas and escapes its query', async () => {
+  const kit = await connected(() => json({ text: 'hits' }));
+  try {
+    await kit.client.callTool({
+      name: 'memory_search',
+      arguments: {
+        project: 'shop',
+        query: 'why raw body?',
+        k: 5,
+        kinds: ['gotcha', 'decision'],
+        tags: ['stripe', 'webhooks'],
+        paths: ['src/api', 'src/hooks/stripe.ts'],
+        budget: 600,
+      },
+    });
+    assert.equal(kit.seen[0]?.method, 'GET');
+    assert.equal(
+      kit.seen[0]?.url,
+      'https://api.example/v1/projects/shop/memory' +
+        '?query=why%20raw%20body%3F&k=5&kinds=gotcha,decision&tags=stripe,webhooks' +
+        '&paths=src%2Fapi,src%2Fhooks%2Fstripe.ts&budget=600',
+    );
+
+    // No query is browsing by rank, and it is the same route with nothing on it.
+    await kit.client.callTool({ name: 'memory_search', arguments: { project: 'shop' } });
+    assert.equal(kit.seen[1]?.url, 'https://api.example/v1/projects/shop/memory');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('a get asks the search route for ids, and related walks from one id', async () => {
+  const kit = await connected(() => json({ text: 'full memories' }));
+  try {
+    const got = await kit.client.callTool({
+      name: 'memory_get',
+      arguments: { project: 'shop', ids: [12, 31] },
+    });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/memory?ids=12,31');
+    assert.equal(textOf(got), 'full memories');
+
+    await kit.client.callTool({
+      name: 'memory_related',
+      arguments: { project: 'shop', id: 12, hops: 3, budget: 500 },
+    });
+    assert.equal(kit.seen[1]?.method, 'GET');
+    assert.equal(
+      kit.seen[1]?.url,
+      'https://api.example/v1/projects/shop/memory/12/related?hops=3&budget=500',
+    );
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('remember POSTs the memory whole and answers what the service said', async () => {
+  const kit = await connected(() =>
+    json({ saved: true, id: 7, tokens: 48, text: 'Saved #7 (48t) in abc123.' }, 201),
+  );
+  try {
+    const result = await kit.client.callTool({
+      name: 'remember',
+      arguments: {
+        project: 'shop',
+        kind: 'gotcha',
+        title: 'Stripe webhooks need the raw body',
+        body: 'express.json() must not run before the webhook route.',
+        tags: ['stripe'],
+        paths: ['src/hooks/stripe.ts'],
+        links: [3],
+        importance: 4,
+      },
+    });
+    assert.equal(kit.seen[0]?.method, 'POST');
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/memory');
+    // project names the path; everything else is the body, as given, and
+    // nothing the caller left out is invented here.
+    assert.deepEqual(kit.seen[0]?.body, {
+      kind: 'gotcha',
+      title: 'Stripe webhooks need the raw body',
+      body: 'express.json() must not run before the webhook route.',
+      tags: ['stripe'],
+      paths: ['src/hooks/stripe.ts'],
+      links: [3],
+      importance: 4,
+    });
+    assert.equal(textOf(result), 'Saved #7 (48t) in abc123.');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// The refusal that matters most: the right next move is to update or link one
+// of the memories it collided with, and the agent cannot do that without seeing
+// them. The envelope stays as every other refusal; what the engine sent beside
+// it is appended, not dropped.
+test('a duplicate refusal shows the near-duplicates it collided with', async () => {
+  const kit = await connected(() =>
+    json(
+      {
+        error: {
+          code: 'memory_duplicate',
+          message: 'not saved: a near-duplicate exists',
+          fix_hint: 'update or supersede one of the listed memories, or force',
+        },
+        duplicates: [{ seq: 12, kind: 'gotcha', title: 'Stripe webhooks need the raw body', similarity: 0.91 }],
+        text: 'Not saved — near-duplicate of:\n#12 gotcha · Stripe webhooks need the raw body [0.91]',
+      },
+      409,
+    ),
+  );
+  try {
+    const result: any = await kit.client.callTool({
+      name: 'remember',
+      arguments: { project: 'shop', kind: 'gotcha', title: 'Raw body for Stripe', body: 'same fact' },
+    });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^\[memory_duplicate\] not saved/);
+    assert.match(textOf(result), /hint: update or supersede/);
+    // The service's own rendering of the collision, after the envelope.
+    assert.match(textOf(result), /#12 gotcha · Stripe webhooks need the raw body/);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// The same refusal with the duplicates but no rendering: the engine's JSON is
+// shown, because losing them is the one outcome that is not acceptable.
+test('a refusal with extra fields and no text shows them as JSON', async () => {
+  const kit = await connected(() =>
+    json(
+      {
+        error: { code: 'memory_duplicate', message: 'not saved' },
+        duplicates: [{ seq: 12, title: 'Stripe webhooks need the raw body' }],
+      },
+      409,
+    ),
+  );
+  try {
+    const result: any = await kit.client.callTool({
+      name: 'remember',
+      arguments: { project: 'shop', kind: 'gotcha', title: 't', body: 'b' },
+    });
+    assert.match(textOf(result), /^\[memory_duplicate\] not saved\n/);
+    assert.match(textOf(result), /"seq": 12/);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// And every other refusal is untouched by that: an envelope alone renders as
+// it always has, with nothing appended.
+test('a plain refusal renders exactly as before', async () => {
+  const kit = await connected(() =>
+    json({ error: { code: 'project_not_found', message: 'no such project', fix_hint: 'try `projects`' } }, 404),
+  );
+  try {
+    const result: any = await kit.client.callTool({
+      name: 'memory_briefing',
+      arguments: { project: 'nope' },
+    });
+    assert.equal(textOf(result), '[project_not_found] no such project\nhint: try `projects`');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('a memory answer without text falls back to the JSON, like every other tool', async () => {
+  const kit = await connected(() => json({ project: 'abc123', memories: [] }));
+  try {
+    const result = await kit.client.callTool({ name: 'memory_briefing', arguments: { project: 'shop' } });
+    assert.match(textOf(result), /"project": "abc123"/);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('an update PATCHes only the fields given, and can archive', async () => {
+  const kit = await connected(() => json({ id: 12, text: 'Updated #12.' }));
+  try {
+    const result = await kit.client.callTool({
+      name: 'memory_update',
+      arguments: { project: 'shop', id: 12, status: 'archived', tags: ['old'] },
+    });
+    assert.equal(kit.seen[0]?.method, 'PATCH');
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/memory/12');
+    assert.deepEqual(kit.seen[0]?.body, { status: 'archived', tags: ['old'] });
+    assert.equal(textOf(result), 'Updated #12.');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// Linking is one POST naming every target; unlinking is one DELETE naming one.
+// Two tools rather than one with a `remove` flag, because a removal of several
+// would be several calls from one tool, and every tool here is exactly one.
+test('a link is one POST and an unlink is one DELETE', async () => {
+  const kit = await connected(() => json({ text: 'Linked #12 ↔ #31, #40.' }));
+  try {
+    const linked = await kit.client.callTool({
+      name: 'memory_link',
+      arguments: { project: 'shop', id: 12, to: [31, 40], note: 'same webhook' },
+    });
+    assert.equal(kit.seen[0]?.method, 'POST');
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/memory/12/links');
+    assert.deepEqual(kit.seen[0]?.body, { to: [31, 40], note: 'same webhook' });
+    assert.equal(textOf(linked), 'Linked #12 ↔ #31, #40.');
+
+    await kit.client.callTool({
+      name: 'memory_unlink',
+      arguments: { project: 'shop', id: 12, other: 31 },
+    });
+    assert.equal(kit.seen[1]?.method, 'DELETE');
+    assert.equal(kit.seen[1]?.url, 'https://api.example/v1/projects/shop/memory/12/links/31');
+    assert.equal(kit.seen[1]?.body, undefined);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// The rules an agent cannot find out by trying, in the words it reads. Each is
+// on the tool where it is needed, because the description is the only
+// documentation a tool call ever sees.
+test('the memory tools carry the rules that cannot be discovered by trying', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const by = (name: string) => String(tools.find((t) => t.name === name)!.description);
+    assert.match(by('memory_briefing'), /call this first/i);
+    assert.match(by('memory_search'), /before exploring code/i);
+    assert.match(by('remember'), /one fact per memory, in english/i);
+    assert.match(by('remember'), /memory_duplicate/);
+    assert.match(by('remember'), /never put a secret in a tag or a path/i);
+    assert.match(by('remember'), /do not store credentials in memory/i);
+    assert.match(by('remember'), /needs editor/i);
+    assert.match(by('memory_briefing'), /needs viewer/i);
+    // The kinds are named once, on the field, because a wrong one is refused
+    // only after the body was written — and as prose, not an enum, so the
+    // engine's list stays the list.
+    const remember = tools.find((t) => t.name === 'remember')!;
+    const props = (remember.inputSchema as any).properties;
+    assert.match(
+      String(props.kind.description),
+      /overview, architecture, decision, convention, gotcha, howto, reference, state/,
+    );
+    assert.equal(props.kind.enum, undefined);
+    // No numeric limit of the service is repeated in a schema here.
+    for (const field of ['title', 'body', 'tags', 'links']) {
+      for (const bound of ['maxLength', 'maxItems', 'minLength']) {
+        assert.equal(props[field][bound], undefined, `${field} copies ${bound} from the service`);
+      }
+    }
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// Which project a repository is has to survive to the next session, and the
+// two tools that establish it are where the habit is taught.
+test('the project tools and the guide say to note the project in .gagarin.json', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    for (const name of ['create_project', 'projects']) {
+      assert.match(String(tools.find((t) => t.name === name)!.description), /\.gagarin\.json/);
+    }
+    const read = await kit.client.readResource({ uri: 'gagarin://guide' });
+    const text = String((read.contents[0] as any).text);
+    assert.match(text, /\.gagarin\.json/);
+    assert.match(text, /note, not configuration/i);
+    assert.match(text, /prefer the id/i);
+    assert.match(text, /memory_briefing/);
+    assert.match(text, /never put a secret in a tag/i);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});

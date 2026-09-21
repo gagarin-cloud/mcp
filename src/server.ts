@@ -64,6 +64,12 @@ Eight things that are true of every call here:
    again after they click — one click covers the fifteen minutes after it. No
    credential changes this. Adding is always free.
 
+Every project also carries a memory: durable facts saved by earlier sessions.
+Call \`memory_briefing\` before reading code on a project, and \`remember\` what
+the next session would otherwise rediscover. Which project a repository is
+belongs in \`.gagarin.json\` at its root — read it first, and name the project
+explicitly in every call regardless.
+
 Errors are \`[code] message\` with a \`hint:\` line. Branch on the code, never on
 the prose.`;
 
@@ -97,6 +103,7 @@ read like a platform fault:
    from \`gg login\` or \`gg creds create\` in the Authorization header. Over stdio,
    your human runs \`gg login\` on this machine, or GAGARIN_TOKEN is exported.
 2. \`create_project\` — the id it returns is what image paths are built from.
+   Note it in \`.gagarin.json\` at the repository root (see below).
 3. On the machine with the source: \`gg ship <project>/<service>:<port>\`. That
    builds, pushes and deploys in one, and it is the only step that is not here.
 4. \`status <project>\` — desired against actual, which is the only answer to
@@ -130,6 +137,68 @@ and read as a crash loop while the meter ran.
 \`rollback\` on a job re-runs an older image under a new revision. Only ask for
 one if a second run is safe.
 
+## Project memory
+
+Every project carries a memory: small, durable facts about its codebase that an
+agent saved for the sessions after it — why a decision was taken, a convention,
+a gotcha, how something is done. It is a built-in of the project, like its
+registry, and it is reachable only through this server: there is no \`gg\`
+command and no console page for it.
+
+- **Start with \`memory_briefing\`.** One call, packed to a token budget: the
+  pinned and top-ranked memories in full, the rest as index lines with ids.
+  Do it before reading code.
+- **\`memory_search\` before exploring.** Hybrid semantic and keyword search; a
+  question about why something is the way it is has often been answered.
+  \`memory_get\` reads the ids an index line gave you; \`memory_related\` walks
+  the links out from one.
+- **\`remember\` at the end, and whenever you learn something the code does not
+  say.** One fact per memory, in English, with a title that reads from an
+  index line. Kinds: overview, architecture, decision, convention, gotcha,
+  howto, reference, state. Do not remember what the code says plainly.
+- **A \`memory_duplicate\` refusal lists the near-duplicates.** \`memory_update\`
+  one of those, or \`supersedes\` it, rather than \`force\` — forcing keeps both
+  and makes every later search worse. Archive with \`memory_update\` and
+  \`status: "archived"\`; nothing is deleted.
+- **Memories in use are billed**, on the same meter as everything else: $0.10
+  per 1,000 a month, a few cents for most projects, and capped per project.
+  Reading is not charged. An archived memory is not counted, so archive what is
+  no longer true rather than leaving it to mislead the next briefing.
+- **Title, body and source are encrypted at rest; kind, tags and paths are
+  not.** Never put a secret in a tag or a path, and do not store credentials in
+  memory at all — an \`external\` resource is where those go.
+- Reads need viewer; writes need editor, like every other write here.
+
+The memory tools answer the service's own compact text rather than JSON. That
+is deliberate: the answer is packed to a budget, and it is still the engine's
+rendering, not this server's.
+
+## Which project this repository is
+
+Once you have created a project for a repository, or found the one it already
+uses, write a note at the repository root:
+
+\`\`\`json
+{ "project": { "id": "3cnciet6", "name": "shop" } }
+\`\`\`
+
+Read it first in a new session; with memory, whose briefing to ask for is the
+first thing a session needs to know. The rules, because they are easy to get
+wrong:
+
+- **It is a note, not configuration.** No tool reads it — not this server, not
+  \`gg\`, not the engine. You read it, and then name the project explicitly in
+  every call, so the target stays visible in the call.
+- It holds identity only, never desired state.
+- **Prefer the id in calls.** Names are unique only within one account; a
+  shared project can collide.
+- If it disagrees with \`projects\`, the API is right: fix the file and tell your
+  human.
+- Commit it. The id is already public in every hostname, and a teammate's agent
+  needs it too.
+- If it is absent and your human named no project, ask \`projects\` before
+  creating one.
+
 ## When something is wrong
 
 - A service that will not start: \`logs\`, then \`history\` to see what changed,
@@ -139,6 +208,8 @@ one if a second run is safe.
   again.
 - A call between two services that hangs: \`deps\`. Default-denied looks like a
   timeout, not a refusal.
+- A \`remember\` refused with \`memory_duplicate\`: the refusal lists what it
+  collided with. Update or supersede one of those; do not force.
 - A deploy refused with \`insufficient_scope\`: the credential is a browser
   session or a viewer role. \`whoami\` and \`projects\` say which.
 - Everything refused with \`suspended\` or a deploy refused for money:
@@ -171,7 +242,8 @@ export function createServer(api: Api): McpServer {
       title: 'Driving gagarin over MCP',
       description:
         'The whole of what an agent needs to operate gagarin through these tools: the rules, the ' +
-        'three things that still need the CLI, and the shape of a first deployment.',
+        'three things that still need the CLI, the shape of a first deployment, how project ' +
+        'memory is used, and the `.gagarin.json` note that says which project a repository is.',
       mimeType: 'text/markdown',
     },
     async (uri) => ({
