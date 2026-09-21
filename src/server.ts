@@ -160,6 +160,10 @@ command and no console page for it.
   one of those, or \`supersedes\` it, rather than \`force\` — forcing keeps both
   and makes every later search worse. Archive with \`memory_update\` and
   \`status: "archived"\`; nothing is deleted.
+- **Memories in use are billed**, on the same meter as everything else: $0.10
+  per 1,000 a month, a few cents for most projects, and capped per project.
+  Reading is not charged. An archived memory is not counted, so archive what is
+  no longer true rather than leaving it to mislead the next briefing.
 - **Title, body and source are encrypted at rest; kind, tags and paths are
   not.** Never put a secret in a tag or a path, and do not store credentials in
   memory at all — an \`external\` resource is where those go.
