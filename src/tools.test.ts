@@ -1011,6 +1011,61 @@ test('an update PATCHes only the fields given, and can archive', async () => {
   }
 });
 
+// The bug this guards: `archived: true` in place of `status: "archived"` was
+// stripped in silence, an empty PATCH went out, and the engine answered
+// `Updated #4.` — the same words as an update that worked.
+test('an update with a field the schema does not name is refused, and nothing is sent', async () => {
+  const kit = await connected(() => json({ id: 4, text: 'Updated #4.' }));
+  try {
+    const result: any = await kit.client.callTool({
+      name: 'memory_update',
+      arguments: { project: 'shop', id: 4, archived: true },
+    });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /archived/);
+    assert.doesNotMatch(textOf(result), /Updated/);
+    assert.equal(kit.seen.length, 0);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('an update naming no field is refused, and nothing is sent', async () => {
+  const kit = await connected(() => json({ id: 4, text: 'Updated #4.' }));
+  try {
+    const result: any = await kit.client.callTool({
+      name: 'memory_update',
+      arguments: { project: 'shop', id: 4 },
+    });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^\[nothing_to_update\] nothing to update on #4/);
+    assert.equal(kit.seen.length, 0);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// Not only memory_update: every tool refuses a key it does not declare, so the
+// schema enforced is the schema advertised.
+test('every tool refuses an argument it does not name', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    for (const t of tools) {
+      assert.equal((t.inputSchema as any).additionalProperties, false, `${t.name} advertises extra keys`);
+    }
+    const result: any = await kit.client.callTool({
+      name: 'set_alerts',
+      arguments: { project: 'shop', url: 'https://ntfy.example' },
+    });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /url/);
+    assert.equal(kit.seen.length, 0);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 // Linking is one POST naming every target; unlinking is one DELETE naming one.
 // Two tools rather than one with a `remove` flag, because a removal of several
 // would be several calls from one tool, and every tool here is exactly one.

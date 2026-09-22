@@ -24,7 +24,7 @@
      already done once, in `gg`, about this exact family of values.
 */
 
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer, ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import { Api, ApiFailure } from './api.js';
@@ -250,14 +250,37 @@ export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
   'rotate_resource',
 ]);
 
+/**
+ * `registerTool`, with an argument the schema does not name refused rather than
+ * dropped.
+ *
+ * The SDK wraps a raw shape in a plain `z.object`, and zod's default is to
+ * strip unknown keys in silence — while the JSON Schema it advertises says
+ * `additionalProperties: false`. So a misspelt field was not an error: it was
+ * removed, and the tool ran without it. `memory_update` with `archived: true`
+ * in place of `status: "archived"` sent an empty PATCH and answered
+ * `Updated #4.`; `set_alerts` with `url` in place of `server` would turn alerts
+ * on at ntfy.sh. Strict makes the schema that is enforced the schema that is
+ * advertised, and the refusal names the key.
+ */
+function strictly(server: McpServer) {
+  return <Shape extends z.ZodRawShape>(
+    name: string,
+    config: { title: string; description: string; inputSchema: Shape; annotations: Annotations },
+    cb: ToolCallback<z.ZodObject<Shape, 'strict'>>,
+  ) => server.registerTool(name, { ...config, inputSchema: z.object(config.inputSchema).strict() }, cb);
+}
+
 const project = z.string().describe('project name or id');
 const service = z.string().describe('service name, unique within the project');
 const resource = z.string().describe('resource name, unique within the project');
 
 export function registerTools(server: McpServer, api: Api): void {
+  const tool = strictly(server);
+
   // ─── orientation ─────────────────────────────────────────────────────────
 
-  server.registerTool(
+  tool(
     'whoami',
     {
       title: 'Show current account',
@@ -271,7 +294,7 @@ export function registerTools(server: McpServer, api: Api): void {
     () => attempt(() => api.call('/v1/whoami')),
   );
 
-  server.registerTool(
+  tool(
     'platform_health',
     {
       title: 'Check platform health',
@@ -287,7 +310,7 @@ export function registerTools(server: McpServer, api: Api): void {
 
   // ─── projects ────────────────────────────────────────────────────────────
 
-  server.registerTool(
+  tool(
     'projects',
     {
       title: 'List projects',
@@ -304,7 +327,7 @@ export function registerTools(server: McpServer, api: Api): void {
     () => attempt(() => api.call('/v1/projects')),
   );
 
-  server.registerTool(
+  tool(
     'create_project',
     {
       title: 'Create project',
@@ -324,7 +347,7 @@ export function registerTools(server: McpServer, api: Api): void {
     ({ name }) => attempt(() => api.call('/v1/projects', { method: 'POST', body: { name } })),
   );
 
-  server.registerTool(
+  tool(
     'status',
     {
       title: 'Show project status',
@@ -344,7 +367,7 @@ export function registerTools(server: McpServer, api: Api): void {
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/status`)),
   );
 
-  server.registerTool(
+  tool(
     'eject',
     {
       title: 'Export project manifests',
@@ -360,7 +383,7 @@ export function registerTools(server: McpServer, api: Api): void {
 
   // ─── services ────────────────────────────────────────────────────────────
 
-  server.registerTool(
+  tool(
     'deploy',
     {
       title: 'Deploy service',
@@ -448,7 +471,7 @@ export function registerTools(server: McpServer, api: Api): void {
   // A second family of tools duplicating those four would be four more places for
   // the two to drift apart.
 
-  server.registerTool(
+  tool(
     'run',
     {
       title: 'Run job',
@@ -505,7 +528,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'logs',
     {
       title: 'Show logs',
@@ -519,7 +542,7 @@ export function registerTools(server: McpServer, api: Api): void {
       attempt(() => api.call(`/v1/projects/${seg(project)}/services/${seg(service)}/logs`)),
   );
 
-  server.registerTool(
+  tool(
     'history',
     {
       title: 'Show deploy history',
@@ -534,7 +557,7 @@ export function registerTools(server: McpServer, api: Api): void {
       attempt(() => api.call(`/v1/projects/${seg(project)}/services/${seg(service)}/deployments`)),
   );
 
-  server.registerTool(
+  tool(
     'rollback',
     {
       title: 'Roll back to a revision',
@@ -574,7 +597,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'add_domain',
     {
       title: 'Add domain',
@@ -603,7 +626,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'remove_domain',
     {
       title: 'Remove domain',
@@ -631,7 +654,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'deps',
     {
       title: 'Show dependencies',
@@ -647,7 +670,7 @@ export function registerTools(server: McpServer, api: Api): void {
       attempt(() => api.call(`/v1/projects/${seg(project)}/services/${seg(service)}/needs`)),
   );
 
-  server.registerTool(
+  tool(
     'set_deps',
     {
       title: 'Set dependencies',
@@ -690,7 +713,7 @@ export function registerTools(server: McpServer, api: Api): void {
 
   // ─── resources ───────────────────────────────────────────────────────────
 
-  server.registerTool(
+  tool(
     'add_resource',
     {
       title: 'Add resource',
@@ -743,7 +766,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'resource_keys',
     {
       title: 'List resource keys',
@@ -762,7 +785,7 @@ export function registerTools(server: McpServer, api: Api): void {
       attempt(() => api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/keys`)),
   );
 
-  server.registerTool(
+  tool(
     'resource_secrets',
     {
       title: 'Show resource secrets',
@@ -781,7 +804,7 @@ export function registerTools(server: McpServer, api: Api): void {
       attempt(() => api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/secrets`)),
   );
 
-  server.registerTool(
+  tool(
     'rotate_resource',
     {
       title: 'Rotate resource credentials',
@@ -842,7 +865,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'backups',
     {
       title: 'List backups',
@@ -857,7 +880,7 @@ export function registerTools(server: McpServer, api: Api): void {
       attempt(() => api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/backups`)),
   );
 
-  server.registerTool(
+  tool(
     'backup_resource',
     {
       title: 'Back up resource',
@@ -876,7 +899,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'restore_resource',
     {
       title: 'Restore backup into a new resource',
@@ -931,7 +954,7 @@ export function registerTools(server: McpServer, api: Api): void {
 
   // ─── alerts ──────────────────────────────────────────────────────────────
 
-  server.registerTool(
+  tool(
     'alerts',
     {
       title: 'Show project alerts',
@@ -944,7 +967,7 @@ export function registerTools(server: McpServer, api: Api): void {
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`)),
   );
 
-  server.registerTool(
+  tool(
     'set_alerts',
     {
       title: 'Set project alerts',
@@ -985,7 +1008,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'test_alerts',
     {
       title: 'Send a test alert',
@@ -999,7 +1022,7 @@ export function registerTools(server: McpServer, api: Api): void {
       attempt(() => api.call(`/v1/projects/${seg(project)}/alerts/test`, { method: 'POST' })),
   );
 
-  server.registerTool(
+  tool(
     'alerts_off',
     {
       title: 'Turn off project alerts',
@@ -1013,7 +1036,7 @@ export function registerTools(server: McpServer, api: Api): void {
 
   // ─── people ──────────────────────────────────────────────────────────────
 
-  server.registerTool(
+  tool(
     'members',
     {
       title: 'List project members',
@@ -1027,7 +1050,7 @@ export function registerTools(server: McpServer, api: Api): void {
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/members`)),
   );
 
-  server.registerTool(
+  tool(
     'share',
     {
       title: 'Share project',
@@ -1047,7 +1070,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'unshare',
     {
       title: 'Unshare project',
@@ -1061,7 +1084,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'transfer',
     {
       title: 'Transfer project ownership',
@@ -1093,7 +1116,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'untransfer',
     {
       title: 'Withdraw ownership offer',
@@ -1110,7 +1133,7 @@ export function registerTools(server: McpServer, api: Api): void {
 
   // ─── money ───────────────────────────────────────────────────────────────
 
-  server.registerTool(
+  tool(
     'billing',
     {
       title: 'Show billing',
@@ -1124,7 +1147,7 @@ export function registerTools(server: McpServer, api: Api): void {
     () => attempt(() => api.call('/v1/billing')),
   );
 
-  server.registerTool(
+  tool(
     'billing_history',
     {
       title: 'Show billing history',
@@ -1140,7 +1163,7 @@ export function registerTools(server: McpServer, api: Api): void {
 
   // ─── credentials ─────────────────────────────────────────────────────────
 
-  server.registerTool(
+  tool(
     'credentials',
     {
       title: 'List credentials',
@@ -1153,7 +1176,7 @@ export function registerTools(server: McpServer, api: Api): void {
     () => attempt(() => api.call('/v1/credentials')),
   );
 
-  server.registerTool(
+  tool(
     'create_credential',
     {
       title: 'Create credential',
@@ -1183,7 +1206,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'revoke_credential',
     {
       title: 'Revoke credential',
@@ -1227,7 +1250,7 @@ export function registerTools(server: McpServer, api: Api): void {
     .optional()
     .describe('files or directories this is about, relative to the repository. Not encrypted.');
 
-  server.registerTool(
+  tool(
     'memory_briefing',
     {
       title: 'Read project briefing',
@@ -1246,7 +1269,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'memory_search',
     {
       title: 'Search project memory',
@@ -1280,7 +1303,7 @@ export function registerTools(server: McpServer, api: Api): void {
       attempt(async () => rendered(await api.call(`/v1/projects/${seg(project)}/memory${qs(params)}`))),
   );
 
-  server.registerTool(
+  tool(
     'memory_get',
     {
       title: 'Read memories in full',
@@ -1299,7 +1322,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'memory_related',
     {
       title: 'Follow memory links',
@@ -1321,7 +1344,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'remember',
     {
       title: 'Save a memory',
@@ -1366,7 +1389,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'memory_update',
     {
       title: 'Update a memory',
@@ -1392,14 +1415,25 @@ export function registerTools(server: McpServer, api: Api): void {
       annotations: writes('Update a memory', { idempotent: true }),
     },
     ({ project, id, ...body }) =>
-      attempt(async () =>
-        rendered(
+      attempt(async () => {
+        // An update naming no field changes nothing, and the engine would still
+        // answer `Updated #id.` — indistinguishable from one that archived it.
+        if (Object.values(body).every((v) => v === undefined)) {
+          throw new ApiFailure(400, {
+            code: 'nothing_to_update',
+            message: `nothing to update on #${id}: name at least one field to change`,
+            fix_hint:
+              'title, body, kind, tags, paths, source, importance, pinned or status — ' +
+              'archive with status: "archived"',
+          });
+        }
+        return rendered(
           await api.call(`/v1/projects/${seg(project)}/memory/${id}`, { method: 'PATCH', body }),
-        ),
-      ),
+        );
+      }),
   );
 
-  server.registerTool(
+  tool(
     'memory_link',
     {
       title: 'Link memories',
@@ -1424,7 +1458,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'memory_unlink',
     {
       title: 'Unlink memories',
@@ -1453,7 +1487,7 @@ export function registerTools(server: McpServer, api: Api): void {
   // server can hold changes that — it is the one capability an agent cannot be
   // granted.
 
-  server.registerTool(
+  tool(
     'destroy_service',
     {
       title: 'Destroy service',
@@ -1473,7 +1507,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'destroy_resource',
     {
       title: 'Destroy resource',
@@ -1492,7 +1526,7 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
-  server.registerTool(
+  tool(
     'destroy_project',
     {
       title: 'Destroy project',
