@@ -212,6 +212,8 @@ wrong:
   collided with. Update or supersede one of those; do not force.
 - A deploy refused with \`insufficient_scope\`: the credential is a browser
   session or a viewer role. \`whoami\` and \`projects\` say which.
+- Your human wants to hear about outages without asking you: \`set_alerts\`,
+  hand them the \`subscribe\` address for the ntfy app, then \`test_alerts\`.
 - Everything refused with \`suspended\` or a deploy refused for money:
   \`billing\`. A runway measured in hours is worth telling your human about
   before it becomes an outage.

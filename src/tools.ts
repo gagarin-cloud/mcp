@@ -913,6 +913,88 @@ export function registerTools(server: McpServer, api: Api): void {
       ),
   );
 
+  // ─── alerts ──────────────────────────────────────────────────────────────
+
+  server.registerTool(
+    'alerts',
+    {
+      title: 'Show project alerts',
+      description:
+        'Where a project\'s alerts go: an ntfy topic, and the `subscribe` address to give your ' +
+        'human for the ntfy app. `enabled: false` means nobody is told when a service goes down.',
+      inputSchema: { project },
+      annotations: reads('Show project alerts'),
+    },
+    ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`)),
+  );
+
+  server.registerTool(
+    'set_alerts',
+    {
+      title: 'Set project alerts',
+      description:
+        'Turns alerts on, or changes where they go. With nothing but the project it means ntfy.sh ' +
+        'and a topic nobody can guess, which is almost always right. Once on, the engine pushes ' +
+        'when a service has been down for three minutes, when a deploy will not start, and when a ' +
+        'container crashes and restarts — once when it starts and once when it ends. Hand your ' +
+        'human the `subscribe` address from the result; they install the ntfy app and subscribe. ' +
+        'Then `test_alerts`.',
+      inputSchema: {
+        project,
+        server: z
+          .string()
+          .optional()
+          .describe('their own ntfy server, https only; omit for ntfy.sh'),
+        topic: z
+          .string()
+          .optional()
+          .describe('a topic of their own; omit to keep the current one, or have one made up'),
+        token: z
+          .string()
+          .optional()
+          .describe('an ntfy access token to publish with, for their server or a reserved topic'),
+      },
+      annotations: writes('Set project alerts', { idempotent: true }),
+    },
+    ({ project, server, topic, token }) =>
+      attempt(() =>
+        api.call(`/v1/projects/${seg(project)}/alerts`, {
+          method: 'PUT',
+          body: {
+            ...(server ? { server } : {}),
+            ...(topic ? { topic } : {}),
+            ...(token ? { token } : {}),
+          },
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'test_alerts',
+    {
+      title: 'Send a test alert',
+      description:
+        'Sends one notification to the project\'s alert topic now. Use it after `set_alerts`, once ' +
+        'your human has subscribed, so they see the channel work before it matters.',
+      inputSchema: { project },
+      annotations: writes('Send a test alert', { idempotent: false }),
+    },
+    ({ project }) =>
+      attempt(() => api.call(`/v1/projects/${seg(project)}/alerts/test`, { method: 'POST' })),
+  );
+
+  server.registerTool(
+    'alerts_off',
+    {
+      title: 'Turn off project alerts',
+      description: 'Stops sending a project\'s alerts. `set_alerts` turns them back on.',
+      inputSchema: { project },
+      annotations: writes('Turn off project alerts', { idempotent: true }),
+    },
+    ({ project }) =>
+      attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`, { method: 'DELETE' })),
+  );
+
   // ─── people ──────────────────────────────────────────────────────────────
 
   server.registerTool(
