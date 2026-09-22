@@ -323,6 +323,31 @@ test('a restore names the new resource in the path and the old one in the body',
   }
 });
 
+// The restore is one call: gagarin creates the resource as the backup's type.
+// An agent told to create it first would have to know that type, which for a
+// destroyed source nothing but its backups records — so the tool must not ask.
+test('a restore is one call and never asks for a type', async () => {
+  const kit = await connected(() => json({ ok: true }));
+  try {
+    const { tools } = await kit.client.listTools();
+    const restore = tools.find((t) => t.name === 'restore_resource')!;
+    assert.doesNotMatch(String(restore.description), /add_resource` to create/);
+    // Answered before the data moves, so the description has to send the
+    // agent to the place the outcome shows up.
+    assert.match(String(restore.description), /restore\.state/);
+    assert.equal('type' in (restore.inputSchema.properties ?? {}), false);
+
+    await kit.client.callTool({
+      name: 'restore_resource',
+      arguments: { project: 'shop', resource: 'vec2', source: 'vec', storage_gb: 20 },
+    });
+    assert.equal(kit.seen.length, 1);
+    assert.deepEqual(kit.seen[0]?.body, { source: 'vec', storage_gb: 20 });
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 test('a refusal comes back as an error result an agent can branch on', async () => {
   const kit = await connected(() =>
     json(

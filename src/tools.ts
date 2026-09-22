@@ -848,7 +848,8 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'List backups',
       description:
         'Every stored backup of a resource, newest last. Keys are UTC timestamps, so they sort ' +
-        'chronologically, and one is what `restore_resource` takes for an exact point.',
+        'chronologically, and one is what `restore_resource` takes for an exact point. Each says ' +
+        'the type that wrote it, and a destroyed resource still lists the backups it left.',
       inputSchema: { project, resource },
       annotations: reads('List backups'),
     },
@@ -880,35 +881,50 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Restore backup into a new resource',
       description:
-        'Fills a **new** resource from another one\'s backup and never overwrites anything — ' +
-        'which is why it needs no approval and cannot lose data.\n' +
-        'Three calls, in this order, and the first two are not optional: `add_resource` to create ' +
-        'the destination with the same type as the source, `status` until it is running, then this. ' +
-        'A restore into a name that does not exist answers `no_such_resource`, and one into a ' +
-        'resource that exists but has not come up yet answers `restore_failed` — the data is ' +
-        'loaded *into* a live resource, not conjured as one.\n' +
-        '`resource` is that new name; `source` is the resource whose newest backup to take, or ' +
-        '`backup` is one exact key from `backups`. Point the dependents at the new name with ' +
-        '`set_deps` once you have checked it.',
+        'Restores a backup into a **new** resource and never overwrites anything — which is why ' +
+        'it needs no approval and cannot lose data.\n' +
+        'Name a resource that does not exist yet: gagarin creates it as the backup\'s own type ' +
+        '(a postgres for a postgres dump, a qdrant for a qdrant backup — you never choose) and ' +
+        'answers at once. The data is poured in afterwards by the platform, usually within a ' +
+        'minute or two, longer for a large backup. `source` is the resource whose newest backup ' +
+        'to take — it may already be destroyed, which is the case this exists for — or `backup` ' +
+        'is one exact key from `backups`.\n' +
+        'Follow it with `status`: the resource carries `restore.state` — `pending`, then `done`, ' +
+        'or `failed` with `restore.error`. Do not point dependents at it until it is `done`; then ' +
+        'use `set_deps`. Calling this again with the same arguments is the same restore, not a ' +
+        'second one.',
       inputSchema: {
         project,
         resource: z
           .string()
-          .describe(
-            'the new resource to fill. Create it with `add_resource` and wait for `status` to ' +
-              'show it running before calling this.',
-          ),
-        source: z.string().optional().describe('the resource whose newest backup to use'),
+          .describe('the new name to restore into. gagarin creates it; do not `add_resource` first.'),
+        source: z
+          .string()
+          .optional()
+          .describe('the resource whose newest backup to use, even if it has been destroyed'),
         backup: z.string().optional().describe('one exact key from `backups`, for a specific point in time'),
+        size: z
+          .string()
+          .optional()
+          .describe('the new resource\'s envelope word, as `add_resource` takes it. Changeable later.'),
+        storage_gb: z
+          .number()
+          .int()
+          .optional()
+          .describe('how big the new resource\'s volume may get. Fixed at creation, like every volume.'),
       },
       annotations: writes('Restore backup into a new resource', { idempotent: false }),
     },
-    ({ project, resource, source, backup }) =>
+    ({ project, resource, source, backup, size, storage_gb }) =>
       attempt(() =>
         api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/restore`, {
           method: 'POST',
-          body: { ...(source ? { source } : {}), ...(backup ? { backup } : {}) },
-          timeoutMs: 300_000,
+          body: {
+            ...(source ? { source } : {}),
+            ...(backup ? { backup } : {}),
+            ...(size ? { size } : {}),
+            ...(storage_gb ? { storage_gb } : {}),
+          },
         }),
       ),
   );
