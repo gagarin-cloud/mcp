@@ -1095,3 +1095,47 @@ test('the project tools and the guide say to note the project in .gagarin.json',
     await kit[Symbol.asyncDispose]();
   }
 });
+
+// A bare set_alerts is the common case, and it only means "ntfy.sh, make me a
+// topic" if nothing else is sent — an empty string would be a topic the engine
+// refuses, and an empty server is the same default said wrongly.
+test('set_alerts sends only what was given', async () => {
+  const kit = await connected(() => json({ enabled: true }));
+  try {
+    await kit.client.callTool({ name: 'set_alerts', arguments: { project: 'shop' } });
+    assert.equal(kit.seen[0]?.method, 'PUT');
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/alerts');
+    assert.deepEqual(kit.seen[0]?.body, {});
+
+    await kit.client.callTool({
+      name: 'set_alerts',
+      arguments: { project: 'shop', server: 'https://ntfy.example.com', topic: 'ops', token: 'tk_x' },
+    });
+    assert.deepEqual(kit.seen[1]?.body, {
+      server: 'https://ntfy.example.com',
+      topic: 'ops',
+      token: 'tk_x',
+    });
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('test_alerts and alerts_off reach their routes', async () => {
+  const kit = await connected(() => json({ ok: true }));
+  try {
+    await kit.client.callTool({ name: 'test_alerts', arguments: { project: 'shop' } });
+    await kit.client.callTool({ name: 'alerts_off', arguments: { project: 'shop' } });
+    await kit.client.callTool({ name: 'alerts', arguments: { project: 'shop' } });
+    assert.deepEqual(
+      kit.seen.map((c) => `${c.method} ${c.url}`),
+      [
+        'POST https://api.example/v1/projects/shop/alerts/test',
+        'DELETE https://api.example/v1/projects/shop/alerts',
+        'GET https://api.example/v1/projects/shop/alerts',
+      ],
+    );
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
