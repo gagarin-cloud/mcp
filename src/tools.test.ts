@@ -332,6 +332,9 @@ test('a restore is one call and never asks for a type', async () => {
     const { tools } = await kit.client.listTools();
     const restore = tools.find((t) => t.name === 'restore_resource')!;
     assert.doesNotMatch(String(restore.description), /add_resource` to create/);
+    // Answered before the data moves, so the description has to send the
+    // agent to the place the outcome shows up.
+    assert.match(String(restore.description), /restore\.state/);
     assert.equal('type' in (restore.inputSchema.properties ?? {}), false);
 
     await kit.client.callTool({

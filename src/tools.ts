@@ -815,16 +815,18 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Restore backup into a new resource',
       description:
-        'Restores a backup into a **new** resource, in one call, and never overwrites anything — ' +
-        'which is why it needs no approval and cannot lose data.\n' +
+        'Restores a backup into a **new** resource and never overwrites anything — which is why ' +
+        'it needs no approval and cannot lose data.\n' +
         'Name a resource that does not exist yet: gagarin creates it as the backup\'s own type ' +
-        '(a postgres for a postgres dump, a qdrant for a qdrant backup — you never choose), waits ' +
-        'for it to start, and fills it. `source` is the resource whose newest backup to take — it ' +
-        'may already be destroyed, which is the case this exists for — or `backup` is one exact ' +
-        'key from `backups`. A name that already exists is only ever filled if it is empty.\n' +
-        'If the answer is `restore_failed` because the new resource was slow to start, make the ' +
-        'same call again: it reuses the name and the empty check still guards it. Afterwards, ' +
-        'point the dependents at the new name with `set_deps` once you have checked the data.',
+        '(a postgres for a postgres dump, a qdrant for a qdrant backup — you never choose) and ' +
+        'answers at once. The data is poured in afterwards by the platform, usually within a ' +
+        'minute or two, longer for a large backup. `source` is the resource whose newest backup ' +
+        'to take — it may already be destroyed, which is the case this exists for — or `backup` ' +
+        'is one exact key from `backups`.\n' +
+        'Follow it with `status`: the resource carries `restore.state` — `pending`, then `done`, ' +
+        'or `failed` with `restore.error`. Do not point dependents at it until it is `done`; then ' +
+        'use `set_deps`. Calling this again with the same arguments is the same restore, not a ' +
+        'second one.',
       inputSchema: {
         project,
         resource: z
@@ -857,7 +859,6 @@ export function registerTools(server: McpServer, api: Api): void {
             ...(size ? { size } : {}),
             ...(storage_gb ? { storage_gb } : {}),
           },
-          timeoutMs: 300_000,
         }),
       ),
   );
