@@ -10,7 +10,7 @@ name: registry
 #
 # By DNS. gagarin.cloud carries a TXT record, v=MCPv1 with the public half of an
 # Ed25519 key, and MCP_REGISTRY_KEY is the private half as hex. The record lives
-# in the gagarin repository (infra/scaleway/dns.tf, mcp_registry), not here,
+# in gagarin-cloud/core (infra/scaleway/dns.tf, mcp_registry), not here,
 # because that is where the zone is. Anyone holding the key can publish anything
 # under cloud.gagarin/*, so it is a secret of the `production` environment, like
 # deploy.yml's, and only main can read it.
