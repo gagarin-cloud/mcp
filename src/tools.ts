@@ -571,8 +571,8 @@ export function registerTools(server: McpServer, api: Api): void {
         'stands now, so a rollback never puts a service back onto a rotated password. **To undo a ' +
         'config change, roll back the external resource holding it, not its dependents**: name ' +
         'the resource here and every service declaring it is restarted with the restored values. ' +
-        'An external can be rolled back because its values are the user\'s; a postgres, qdrant or ' +
-        'valkey cannot, because gagarin mints those and there is no earlier value of theirs to ' +
+        'An external can be rolled back because its values are the user\'s; a postgres, qdrant, ' +
+        'valkey or s3 cannot, because gagarin mints those and there is no earlier value of theirs to ' +
         'return to.',
       inputSchema: {
         project,
@@ -740,13 +740,13 @@ export function registerTools(server: McpServer, api: Api): void {
       inputSchema: {
         project,
         resource,
-        type: z.string().describe('what to provision, e.g. postgres, valkey, qdrant or external'),
-        size: z.string().optional().describe('the same envelope word a service takes. Changeable later.'),
+        type: z.string().describe('what to provision, e.g. postgres, valkey, qdrant, s3 or external'),
+        size: z.string().optional().describe('the same envelope word a service takes. Changeable later. Refused for s3.'),
         storage_gb: z
           .number()
           .int()
           .optional()
-          .describe('how big its volume may get. Fixed at creation, like every volume.'),
+          .describe('how big its volume may get. Fixed at creation, like every volume. Refused for s3.'),
         env: z
           .record(z.string())
           .optional()
@@ -816,7 +816,10 @@ export function registerTools(server: McpServer, api: Api): void {
         'rest exactly as they are, while `env` says the bundle is now precisely this and drops ' +
         'every key not in it. **Reach for `set` when one key is being replaced** — `env` with a ' +
         'single key would take the others away from every dependent. The answer names what ' +
-        'changed and what stopped being published, so read `removed` before reporting success.',
+        'changed and what stopped being published, so read `removed` before reporting success. ' +
+        'For `s3`, the old key is revoked at once and dependents restart, so their S3 calls fail ' +
+        'for those seconds; if `old_credential_revoked` is false the old key still works — say so, ' +
+        'and call this again, which revokes it first.',
       inputSchema: {
         project,
         resource,

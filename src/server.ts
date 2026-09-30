@@ -119,6 +119,17 @@ read like a platform fault:
    something *outside* the project, not for a service inside it.
 3. \`status\` to watch it come up.
 
+## Adding object storage
+
+1. \`add_resource\` with type \`s3\`. It is a private S3-compatible bucket.
+2. \`set_deps\` on the service, listing the resource. The service receives
+   \`<NAME>_ENDPOINT\`, \`<NAME>_REGION\`, \`<NAME>_BUCKET\`, \`<NAME>_ACCESS_KEY_ID\`
+   and \`<NAME>_SECRET_ACCESS_KEY\`.
+3. Nothing runs, so there is nothing to wait for; \`resource_keys\` shows what it
+   publishes. It has no size and no backups, it is reached over the internet
+   (the key, not the graph, is the boundary), and destroying it needs approval
+   and deletes every object.
+
 ## Running a migration
 
 A job, not a service — deployed as a service it would exit 0, be restarted,
