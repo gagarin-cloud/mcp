@@ -215,6 +215,13 @@ test('the safe read is the one a model is steered to', async () => {
     assert.match(secrets.description!, /only when a value is what you need/i);
     // And status must not send anyone looking for values it no longer carries.
     assert.match(status.description!, /does not carry a resource's environment/i);
+    // Nor a service's: the engine returns names only, and the descriptions must
+    // say so rather than send an agent looking for values that are not there.
+    const history = tools.find((t: any) => t.name === 'history')!;
+    assert.match(status.description!, /no environment values, at any role/i);
+    assert.match(status.description!, /env_keys/);
+    assert.match(history.description!, /never the values/i);
+    assert.doesNotMatch(history.description!, /port, environment and/i);
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -261,8 +268,9 @@ test('the rollback tool says config is undone at the resource, not the dependent
     // The failure mode this is really guarding: an agent asked to change one
     // variable, without the user's env file, reconstructing the whole
     // environment from history and redeploying. That silently drops whatever it
-    // misread and pulls every secret through the conversation — so `deploy` has
-    // to warn against it by name and point at the alternative.
+    // misread. History no longer carries the values, so the danger now is a
+    // redeploy with a guess — and `deploy` has to warn against it by name and
+    // point at the alternative.
     const deploy = tools.find((t: any) => t.name === 'deploy')!;
     assert.match(deploy.description!, /do NOT reconstruct it/i);
     assert.match(deploy.description!, /external/i);
