@@ -112,12 +112,25 @@ read like a platform fault:
 
 ## Adding a database
 
-1. \`add_resource\` with type \`postgres\` (or \`valkey\`, or \`qdrant\`).
+1. \`add_resource\` with type \`postgres\` (or \`valkey\`, or \`qdrant\`; \`iggy\` for a message stream).
 2. \`set_deps\` on the service, listing the resource. That opens the route and
    hands over the connection variables; the service rolls on its own. There is
    no second call and nothing to copy by hand — \`resource_secrets\` exists for
    something *outside* the project, not for a service inside it.
 3. \`status\` to watch it come up.
+
+## Adding a message stream
+
+1. \`add_resource\` with type \`iggy\`. It is a private Apache Iggy log with one
+   volume, reached on TCP 8090 (the binary protocol the SDKs use) and HTTP 3000.
+2. \`set_deps\` on the service, listing the resource. A resource called
+   \`events\` hands over \`EVENTS_URL\` (\`iggy://root:<password>@events:8090\`),
+   \`EVENTS_HOST\`, \`EVENTS_PORT\`, \`EVENTS_HTTP_PORT\`, \`EVENTS_USER\` and
+   \`EVENTS_PASSWORD\`. Gagarin mints the credentials; you cannot supply env.
+3. It is backed up nightly, but the backup is taken while it runs: a topic
+   created with persisted durability (\`--durability persisted\` in Iggy's own CLI
+   and SDKs) is restored complete, and the newest messages of any other topic may
+   be missing. Say so before the user puts anything in one they need back.
 
 ## Adding object storage
 

@@ -572,7 +572,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'config change, roll back the external resource holding it, not its dependents**: name ' +
         'the resource here and every service declaring it is restarted with the restored values. ' +
         'An external can be rolled back because its values are the user\'s; a postgres, qdrant, ' +
-        'valkey or s3 cannot, because gagarin mints those and there is no earlier value of theirs to ' +
+        'valkey, iggy or s3 cannot, because gagarin mints those and there is no earlier value of theirs to ' +
         'return to.',
       inputSchema: {
         project,
@@ -740,7 +740,7 @@ export function registerTools(server: McpServer, api: Api): void {
       inputSchema: {
         project,
         resource,
-        type: z.string().describe('what to provision, e.g. postgres, valkey, qdrant, s3 or external'),
+        type: z.string().describe('what to provision, e.g. postgres, valkey, qdrant, iggy, s3 or external'),
         size: z.string().optional().describe('the same envelope word a service takes. Changeable later. Refused for s3.'),
         storage_gb: z
           .number()
@@ -910,7 +910,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'Restores a backup into a **new** resource and never overwrites anything — which is why ' +
         'it needs no approval and cannot lose data.\n' +
         'Name a resource that does not exist yet: gagarin creates it as the backup\'s own type ' +
-        '(a postgres for a postgres dump, a qdrant for a qdrant backup — you never choose) and ' +
+        '(a postgres for a postgres dump, a qdrant for a qdrant backup, an iggy for an iggy backup — you never choose) and ' +
         'answers at once. The data is poured in afterwards by the platform, usually within a ' +
         'minute or two, longer for a large backup. `source` is the resource whose newest backup ' +
         'to take — it may already be destroyed, which is the case this exists for — or `backup` ' +
