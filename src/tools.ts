@@ -359,7 +359,9 @@ export function registerTools(server: McpServer, api: Api): void {
         'project has cost since midnight UTC. A job has none of the service vocabulary — no ' +
         'ready count, no port, no address — and carries its latest run instead: which revision, ' +
         'what phase, how long it took and the exit code. That is the only way to learn how a ' +
-        '`run` ended. It does not carry a resource\'s environment: what a resource publishes by ' +
+        '`run` ended. It carries no environment values, at any role: a service lists the names ' +
+        'it was deployed with as `env_keys` — what a redeploy has to restate — and never their ' +
+        'values. It does not carry a resource\'s environment either: what a resource publishes by ' +
         'name is `resource_keys`, and the values are `resource_secrets`.',
       inputSchema: { project },
       annotations: reads('Show project status'),
@@ -398,10 +400,11 @@ export function registerTools(server: McpServer, api: Api): void {
         'Three rules the shape of this call depends on. **Env is replaced wholesale**, so restate ' +
         'every variable on every deploy — the domain, the size and the dependencies all survive a ' +
         'deploy that forgets to mention them. That also means you cannot change one variable ' +
-        'without holding them all: if you were not given the environment, do NOT reconstruct it ' +
-        'from `history` and redeploy — that drops anything you misread and pulls every secret the ' +
-        'service holds through this conversation. Put the value in an `external` resource ' +
-        'instead, where `rotate_resource` changes one key on its own. **A volume must be ' +
+        'without holding them all. `status` and `history` name the variables (`env_keys`) but never ' +
+        'return their values, so if you were not given the environment, do NOT reconstruct it or ' +
+        'redeploy with a guess — every key you leave out is deleted. Put the value in an ' +
+        '`external` resource instead, where `rotate_resource` changes one key on its own. ' +
+        '**A volume must be ' +
         'restated too**, and for the ' +
         'opposite reason: it cannot be changed, so a service that has one is refused ' +
         '`volume_immutable` unless `volume_path` and `volume_size_gb` come back exactly as ' +
@@ -547,8 +550,8 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Show deploy history',
       description:
-        'Each recorded revision with its image, port, environment and the dependencies it ran ' +
-        'under. `revision` is what `rollback` takes — and for a job it is also what each run was ' +
+        'Each recorded revision with its image, port, the names of its environment variables ' +
+        '(`env_keys`, never the values) and the dependencies it ran under. `revision` is what `rollback` takes — and for a job it is also what each run was ' +
         'called, so this is the list of runs.',
       inputSchema: { project, service },
       annotations: reads('Show deploy history'),
