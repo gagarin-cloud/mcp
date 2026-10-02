@@ -1159,26 +1159,51 @@ test('the project tools and the guide say to note the project in .gagarin.json',
   }
 });
 
-// A bare set_alerts is the common case, and it only means "ntfy.sh, make me a
-// topic" if nothing else is sent — an empty string would be a topic the engine
-// refuses, and an empty server is the same default said wrongly.
-test('set_alerts sends only what was given', async () => {
-  const kit = await connected(() => json({ enabled: true }));
+// Opting in carries nothing: the engine refuses a body naming a server, topic or
+// token, so the tool neither sends one nor accepts one to send.
+test('set_alerts opts the caller in with no body, and refuses the ntfy keys', async () => {
+  const kit = await connected(() => json({ enabled: true, devices: 0 }));
   try {
     await kit.client.callTool({ name: 'set_alerts', arguments: { project: 'shop' } });
     assert.equal(kit.seen[0]?.method, 'PUT');
     assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/alerts');
-    assert.deepEqual(kit.seen[0]?.body, {});
+    assert.equal(kit.seen[0]?.body, undefined);
 
-    await kit.client.callTool({
-      name: 'set_alerts',
-      arguments: { project: 'shop', server: 'https://ntfy.example.com', topic: 'ops', token: 'tk_x' },
-    });
-    assert.deepEqual(kit.seen[1]?.body, {
-      server: 'https://ntfy.example.com',
-      topic: 'ops',
-      token: 'tk_x',
-    });
+    for (const key of ['server', 'topic', 'token']) {
+      const result: any = await kit.client.callTool({
+        name: 'set_alerts',
+        arguments: { project: 'shop', [key]: 'x' },
+      });
+      assert.equal(result.isError, true, key);
+    }
+    assert.equal(kit.seen.length, 1);
+
+    const tool = (await kit.client.listTools()).tools.find((t) => t.name === 'set_alerts');
+    assert.deepEqual(Object.keys((tool?.inputSchema as any).properties), ['project']);
+    assert.match(tool?.description ?? '', /my\.gagarin\.cloud/);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('alerts returns the opt-in state and the recent notifications', async () => {
+  const kit = await connected((c) =>
+    c.url.endsWith('/notifications?limit=10')
+      ? json({ notifications: [{ id: '1', title: 'web is down', resolved: false }], next: null })
+      : json({ enabled: true, devices: 2 }),
+  );
+  try {
+    const result: any = await kit.client.callTool({ name: 'alerts', arguments: { project: 'shop' } });
+    assert.deepEqual(
+      kit.seen.map((c) => `${c.method} ${c.url}`),
+      [
+        'GET https://api.example/v1/projects/shop/alerts',
+        'GET https://api.example/v1/projects/shop/notifications?limit=10',
+      ],
+    );
+    const text = textOf(result);
+    assert.match(text, /"devices": ?2/);
+    assert.match(text, /web is down/);
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -1189,13 +1214,11 @@ test('test_alerts and alerts_off reach their routes', async () => {
   try {
     await kit.client.callTool({ name: 'test_alerts', arguments: { project: 'shop' } });
     await kit.client.callTool({ name: 'alerts_off', arguments: { project: 'shop' } });
-    await kit.client.callTool({ name: 'alerts', arguments: { project: 'shop' } });
     assert.deepEqual(
       kit.seen.map((c) => `${c.method} ${c.url}`),
       [
         'POST https://api.example/v1/projects/shop/alerts/test',
         'DELETE https://api.example/v1/projects/shop/alerts',
-        'GET https://api.example/v1/projects/shop/alerts',
       ],
     );
   } finally {

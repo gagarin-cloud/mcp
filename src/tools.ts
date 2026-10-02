@@ -965,12 +965,18 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Show project alerts',
       description:
-        'Where a project\'s alerts go: an ntfy topic, and the `subscribe` address to give your ' +
-        'human for the ntfy app. `enabled: false` means nobody is told when a service goes down.',
+        'Whether the caller is opted in to a project\'s alerts (`enabled`), how many devices they ' +
+        'have to receive them (`devices`), and the most recent notifications sent for the project. ' +
+        '`enabled: false` means the caller is not told when a service goes down; `devices: 0` ' +
+        'means nothing can reach them even if `enabled` is true.',
       inputSchema: { project },
       annotations: reads('Show project alerts'),
     },
-    ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`)),
+    ({ project }) =>
+      attempt(async () => ({
+        alerts: await api.call(`/v1/projects/${seg(project)}/alerts`),
+        ...(await api.call<object>(`/v1/projects/${seg(project)}/notifications?limit=10`)),
+      })),
   );
 
   tool(
@@ -978,40 +984,19 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Set project alerts',
       description:
-        'Turns alerts on, or changes where they go. With nothing but the project it means ntfy.sh ' +
-        'and a topic nobody can guess, which is almost always right. Once on, the engine pushes ' +
-        'when a service has been down for three minutes, when a deploy will not start, and when a ' +
-        'container crashes and restarts — once when it starts and once when it ends. Hand your ' +
-        'human the `subscribe` address from the result; they install the ntfy app and subscribe. ' +
-        'Then `test_alerts`.',
-      inputSchema: {
-        project,
-        server: z
-          .string()
-          .optional()
-          .describe('their own ntfy server, https only; omit for ntfy.sh'),
-        topic: z
-          .string()
-          .optional()
-          .describe('a topic of their own; omit to keep the current one, or have one made up'),
-        token: z
-          .string()
-          .optional()
-          .describe('an ntfy access token to publish with, for their server or a reserved topic'),
-      },
+        'Opts the caller in to a project\'s alerts. It is per member: it says nothing about anyone ' +
+        'else. Once on, the engine notifies when a service has been down for three minutes, when a ' +
+        'deploy will not start, and when a container crashes and restarts — once when it starts ' +
+        'and once when it ends. Notifications arrive in the my.gagarin.cloud console, installed ' +
+        'as an app or open in a browser, on each device your human allows them in. A device is ' +
+        'added from a browser at https://my.gagarin.cloud/projects/PROJECT/alerts, which an agent ' +
+        'cannot do, so tell your human to open it. The result says how many devices there are; ' +
+        'with none, nothing will arrive yet. Then `test_alerts`.',
+      inputSchema: { project },
       annotations: writes('Set project alerts', { idempotent: true }),
     },
-    ({ project, server, topic, token }) =>
-      attempt(() =>
-        api.call(`/v1/projects/${seg(project)}/alerts`, {
-          method: 'PUT',
-          body: {
-            ...(server ? { server } : {}),
-            ...(topic ? { topic } : {}),
-            ...(token ? { token } : {}),
-          },
-        }),
-      ),
+    ({ project }) =>
+      attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`, { method: 'PUT' })),
   );
 
   tool(
@@ -1019,8 +1004,10 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Send a test alert',
       description:
-        'Sends one notification to the project\'s alert topic now. Use it after `set_alerts`, once ' +
-        'your human has subscribed, so they see the channel work before it matters.',
+        'Sends one notification now to the caller\'s own devices, and answers how many it reached ' +
+        '(`sent`). Use it after `set_alerts`, once your human has allowed notifications in a ' +
+        'browser, so they see the channel work before it matters. Refused `alerts_off` when the ' +
+        'caller has not opted in, and `no_devices` when they have no device yet.',
       inputSchema: { project },
       annotations: writes('Send a test alert', { idempotent: false }),
     },
@@ -1032,7 +1019,9 @@ export function registerTools(server: McpServer, api: Api): void {
     'alerts_off',
     {
       title: 'Turn off project alerts',
-      description: 'Stops sending a project\'s alerts. `set_alerts` turns them back on.',
+      description:
+        'Opts the caller out of a project\'s alerts; other members\' are untouched. `set_alerts` turns ' +
+        'them back on.',
       inputSchema: { project },
       annotations: writes('Turn off project alerts', { idempotent: true }),
     },
