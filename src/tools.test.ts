@@ -1225,3 +1225,46 @@ test('test_alerts and alerts_off reach their routes', async () => {
     await kit[Symbol.asyncDispose]();
   }
 });
+
+test('referrals is a read of the caller\'s own /v1/referrals, and cannot write', async () => {
+  const body = {
+    eligible: true,
+    code: '7K3M9QXA',
+    link: 'https://gagarin.cloud/?ref=7K3M9QXA',
+    totals: { invited: 1 },
+    invited: [{ display: 'alice', earned_micro_usd: 15000000 }],
+  };
+  const kit = await connected(() => json(body));
+  try {
+    const tool = (await kit.client.listTools()).tools.find((t) => t.name === 'referrals');
+    assert.ok(tool, 'referrals is missing');
+    assert.equal(tool.annotations?.readOnlyHint, true);
+    assert.equal(tool.annotations?.destructiveHint, false);
+    // No arguments: there is nothing to name, so no way to ask about somebody else.
+    assert.deepEqual(Object.keys((tool.inputSchema as any).properties ?? {}), []);
+
+    const result: any = await kit.client.callTool({ name: 'referrals', arguments: {} });
+    assert.deepEqual(
+      kit.seen.map((c) => `${c.method} ${c.url}`),
+      ['GET https://api.example/v1/referrals'],
+    );
+    assert.equal(kit.seen[0]?.body, undefined);
+    assert.match(textOf(result), /7K3M9QXA/);
+    assert.match(textOf(result), /alice/);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('referrals passes an engine refusal through', async () => {
+  const kit = await connected(() =>
+    json({ error: { code: 'unauthorized', message: 'no' } }, 401),
+  );
+  try {
+    const result: any = await kit.client.callTool({ name: 'referrals', arguments: {} });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /unauthorized/);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
