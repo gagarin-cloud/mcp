@@ -1156,6 +1156,23 @@ export function registerTools(server: McpServer, api: Api): void {
     () => attempt(() => api.call('/v1/billing/history')),
   );
 
+  tool(
+    'referrals',
+    {
+      title: 'Show referrals',
+      description:
+        'The account\'s invite link and code, the terms, and who has signed up through it — ' +
+        'display name, joined date, what they topped up, what the account earned from it, and ' +
+        'when the earning window ends. Only an account that has topped up at least once can ' +
+        'invite: before that, eligible is false and there is no link. Earnings are balance ' +
+        'credit, never cash. Read-only and the caller\'s own: invited users are never named ' +
+        'beyond a GitHub login or masked email.',
+      inputSchema: {},
+      annotations: reads('Show referrals'),
+    },
+    () => attempt(() => api.call('/v1/referrals')),
+  );
+
   // ─── credentials ─────────────────────────────────────────────────────────
 
   tool(

@@ -46,6 +46,7 @@ export const TOOLS_SNAPSHOT: Readonly<Record<string, SnapshotRow>> = {
   memory_update: ['Update a memory', false, false, true, false],
   platform_health: ['Check platform health', true, false, true, false],
   projects: ['List projects', true, false, true, false],
+  referrals: ['Show referrals', true, false, true, false],
   remember: ['Save a memory', false, false, false, false],
   remove_domain: ['Remove domain', false, true, true, false],
   resource_keys: ['List resource keys', true, false, true, false],
