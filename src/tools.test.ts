@@ -824,6 +824,24 @@ test('logs sends its window as a query string, and only what was given', async (
   }
 });
 
+// What the engine does with previous=true and a window, said as it does it:
+// until does not apply to the crashed container and is ignored, since still
+// bounds it (core#64). "Ignores the window" sent agents to drop since, and
+// told them until was harmless when the engine refused it.
+test('logs describes previous as the engine treats it', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const props = (tools.find((t) => t.name === 'logs')!.inputSchema as any).properties;
+    const previous = String(props.previous.description);
+    assert.doesNotMatch(previous, /ignores the window/i);
+    assert.match(previous, /until.*ignored/i);
+    assert.match(previous, /since still/i);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 /*
   Project memory.
 

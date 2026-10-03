@@ -557,7 +557,9 @@ export function registerTools(server: McpServer, api: Api): void {
         previous: z
           .boolean()
           .optional()
-          .describe('the container before the latest restart, from the node — for a crash loop. Ignores the window.'),
+          .describe(
+            'the container before the latest restart, from the node — for a crash loop. until does not apply and is ignored; since still bounds it.',
+          ),
       },
       annotations: reads('Show logs'),
     },
