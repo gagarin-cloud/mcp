@@ -17,8 +17,7 @@ import { Api, ApiFailure, VERSION } from './api.js';
 /** Stand in for the network for the length of one call. */
 function withFetch(handler: (url: string, init: RequestInit) => Response, fn: () => Promise<void>) {
   const real = globalThis.fetch;
-  globalThis.fetch = (async (input: any, init: any) =>
-    handler(String(input), init ?? {})) as typeof fetch;
+  globalThis.fetch = (async (input: any, init: any) => handler(String(input), init ?? {})) as typeof fetch;
   return fn().finally(() => {
     globalThis.fetch = real;
   });
@@ -27,7 +26,7 @@ function withFetch(handler: (url: string, init: RequestInit) => Response, fn: ()
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-test('the engine\'s error envelope survives the trip', async () => {
+test("the engine's error envelope survives the trip", async () => {
   await withFetch(
     () =>
       json(403, {
@@ -176,8 +175,8 @@ test('an unauthenticated route is reachable with no credential at all', async ()
 test('the announced version is the published one', () => {
   // Two places to write a version is two places for it to disagree, and the one
   // that would be wrong is the one gagarin's logs record.
-  const manifest = JSON.parse(
-    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
-  ) as { version: string };
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    version: string;
+  };
   assert.equal(VERSION, manifest.version);
 });

@@ -31,9 +31,7 @@ async function main(): Promise<void> {
   // otherwise a question with no visible answer. The source, never the secret.
   console.error(
     `gagarin mcp: api ${base}, credential from ${source}` +
-      (token
-        ? ''
-        : ' — ask your human to run `gg login` on this machine, or export GAGARIN_TOKEN'),
+      (token ? '' : ' — ask your human to run `gg login` on this machine, or export GAGARIN_TOKEN'),
   );
 
   const server = createServer(new Api(base, token));
