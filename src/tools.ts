@@ -97,8 +97,12 @@ function besides(err: ApiFailure): string {
   const body = err.body;
   if (!body || typeof body !== 'object') return '';
   const { error, ...rest } = body as Record<string, unknown>;
-  const { code: _c, message: _m, fix_hint: _h, ...inner } =
-    error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
+  const {
+    code: _c,
+    message: _m,
+    fix_hint: _h,
+    ...inner
+  } = error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
   const extra = { ...inner, ...rest };
   if (Object.keys(extra).length === 0) return '';
   if (typeof extra.text === 'string') return `\n${extra.text}`;
@@ -299,7 +303,7 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Check platform health',
       description:
-        'The platform\'s own readiness, unauthenticated. Answers whether the control plane can ' +
+        "The platform's own readiness, unauthenticated. Answers whether the control plane can " +
         'reach its database and cluster and when the reconciler last ran — not whether your ' +
         'service is up, which is `status`.',
       inputSchema: {},
@@ -361,7 +365,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'what phase, how long it took and the exit code. That is the only way to learn how a ' +
         '`run` ended. It carries no environment values, at any role: a service lists the names ' +
         'it was deployed with as `env_keys` — what a redeploy has to restate — and never their ' +
-        'values. It does not carry a resource\'s environment either: what a resource publishes by ' +
+        "values. It does not carry a resource's environment either: what a resource publishes by " +
         'name is `resource_keys`, and the values are `resource_secrets`.',
       inputSchema: { project },
       annotations: reads('Show project status'),
@@ -375,7 +379,7 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'Export project manifests',
       description:
         'The Kubernetes manifests, Dockerfiles and connection details for a whole project, so it ' +
-        'can be run somewhere else. Owner only: what comes back includes every service\'s ' +
+        "can be run somewhere else. Owner only: what comes back includes every service's " +
         'environment in the clear.',
       inputSchema: { project },
       annotations: reads('Export project manifests'),
@@ -390,7 +394,7 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Deploy service',
       description:
-        'Declares what a service should be. **The image must already be in gagarin\'s own ' +
+        "Declares what a service should be. **The image must already be in gagarin's own " +
         'registry** under this project — gagarin runs nothing else — and this server cannot put ' +
         'it there: building and pushing need docker and the source, so they happen on a machine, ' +
         'with `gg ship` (build, push and deploy in one) or `gg build` + `gg push` in CI. Use this ' +
@@ -417,7 +421,7 @@ export function registerTools(server: McpServer, api: Api): void {
         image: z
           .string()
           .describe(
-            'full reference in gagarin\'s registry, e.g. registry.gagarin.cloud/<project-id>/web:v3. ' +
+            "full reference in gagarin's registry, e.g. registry.gagarin.cloud/<project-id>/web:v3. " +
               '`whoami` gives the registry host and `projects` the id.',
           ),
         port: z.number().int().describe('the TCP port the container listens on'),
@@ -483,13 +487,13 @@ export function registerTools(server: McpServer, api: Api): void {
         'one-off script. Not a service. It has no port and no volume, nothing can be told to ' +
         'reach it, and it is never restarted by the platform: a script that exits non-zero is ' +
         'reported as having failed, once, with its code.\n' +
-        'Like `deploy`, the image must already be in gagarin\'s registry and this server cannot ' +
+        "Like `deploy`, the image must already be in gagarin's registry and this server cannot " +
         'put it there. **And like `deploy`, this returns without waiting.** It answers a ' +
-        '`revision`, which is the run\'s name; `status` reports that run\'s phase and exit code, ' +
+        "`revision`, which is the run's name; `status` reports that run's phase and exit code, " +
         'and `logs` reads it. There is no tool here that blocks until a run finishes — `gg run` ' +
-        'does that on a machine, exiting with the script\'s own code, which is what CI wants.\n' +
+        "does that on a machine, exiting with the script's own code, which is what CI wants.\n" +
         'Calling this again is the next run, not a restatement: each one is a new revision, and ' +
-        'the three most recent are kept so the previous run\'s logs survive. A name that is ' +
+        "the three most recent are kept so the previous run's logs survive. A name that is " +
         'already a service is refused `not_a_job` — the two are not two states of one thing.',
       inputSchema: {
         project,
@@ -497,7 +501,7 @@ export function registerTools(server: McpServer, api: Api): void {
         image: z
           .string()
           .describe(
-            'full reference in gagarin\'s registry, e.g. registry.gagarin.cloud/<project-id>/migrate:v3',
+            "full reference in gagarin's registry, e.g. registry.gagarin.cloud/<project-id>/migrate:v3",
           ),
         env: z
           .record(z.string())
@@ -536,9 +540,9 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Show logs',
       description:
-        'What a service, or a job\'s runs, printed — oldest first, the latest 200 lines unless asked ' +
+        "What a service, or a job's runs, printed — oldest first, the latest 200 lines unless asked " +
         'otherwise. A week is kept, including containers that crashed, were redeployed or were evicted, ' +
-        'so a job\'s earlier runs are readable too. `source` says where the lines came from: `store` is ' +
+        "so a job's earlier runs are readable too. `source` says where the lines came from: `store` is " +
         'everything kept; `cluster` is only what the node still had, and `notice` says why. When `next` ' +
         'is set there are older lines: pass it back as `until` for the page before. A read, not a stream.',
       inputSchema: {
@@ -547,12 +551,20 @@ export function registerTools(server: McpServer, api: Api): void {
         since: z
           .string()
           .optional()
-          .describe('start of the window: a duration back from now (30m, 6h, 2d) or an RFC 3339 time. Absent means a week.'),
+          .describe(
+            'start of the window: a duration back from now (30m, 6h, 2d) or an RFC 3339 time. Absent means a week.',
+          ),
         until: z
           .string()
           .optional()
-          .describe('end of the window, the same forms — usually the `next` of the previous answer. Absent means now.'),
-        limit: z.number().int().optional().describe('at most this many lines, the latest in the window. Absent means 200.'),
+          .describe(
+            'end of the window, the same forms — usually the `next` of the previous answer. Absent means now.',
+          ),
+        limit: z
+          .number()
+          .int()
+          .optional()
+          .describe('at most this many lines, the latest in the window. Absent means 200.'),
         q: z.string().optional().describe('only lines containing this string, exactly as written'),
         previous: z
           .boolean()
@@ -596,7 +608,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'stands now, so a rollback never puts a service back onto a rotated password. **To undo a ' +
         'config change, roll back the external resource holding it, not its dependents**: name ' +
         'the resource here and every service declaring it is restarted with the restored values. ' +
-        'An external can be rolled back because its values are the user\'s; a postgres, qdrant, ' +
+        "An external can be rolled back because its values are the user's; a postgres, qdrant, " +
         'valkey, iggy or s3 cannot, because gagarin mints those and there is no earlier value of theirs to ' +
         'return to.',
       inputSchema: {
@@ -627,7 +639,7 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Add domain',
       description:
-        'With no domain, hands out gagarin\'s own generated address and the certificate is already ' +
+        "With no domain, hands out gagarin's own generated address and the certificate is already " +
         'held. With one, claims that name — and the answer says what DNS record the owner has to ' +
         'add before it can be issued. Both are idempotent; restating one repairs its ingress. A ' +
         'service is private until this call and a deploy can neither give an address nor take one ' +
@@ -658,14 +670,17 @@ export function registerTools(server: McpServer, api: Api): void {
       description:
         'With a domain, releases that custom name. With none, takes the service off the internet ' +
         'entirely — which is refused while a custom name still points at it, since that would ' +
-        'leave somebody\'s DNS aimed at a host gagarin no longer serves. Releasing a custom name ' +
+        "leave somebody's DNS aimed at a host gagarin no longer serves. Releasing a custom name " +
         'cannot be undone if somebody else claims it in the meantime. ' +
         'Expect `approval_required`: the call completes only when the account owner clicks the ' +
         'button emailed to them, so explain the pause to your user instead of retrying.',
       inputSchema: {
         project,
         service,
-        domain: z.string().optional().describe('the custom name to release. Absent means the generated address.'),
+        domain: z
+          .string()
+          .optional()
+          .describe('the custom name to release. Absent means the generated address.'),
       },
       annotations: destroys('Remove domain', { idempotent: true }),
     },
@@ -721,9 +736,7 @@ export function registerTools(server: McpServer, api: Api): void {
       inputSchema: {
         project,
         service,
-        needs: z
-          .array(z.string())
-          .describe('the complete list of services and resources this one may reach'),
+        needs: z.array(z.string()).describe('the complete list of services and resources this one may reach'),
       },
       annotations: destroys('Set dependencies', { idempotent: true }),
     },
@@ -755,7 +768,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'it; an external is one row, changed with `rotate_resource` (`set`/`unset` for one key), ' +
         'undone with `rollback`, and every holder is restarted for it. Config owned by a single ' +
         'service stays in its deploy env, because that is the half a service rollback restores. ' +
-        '**The decisive difference when you do not have the user\'s env file:** a service\'s ' +
+        "**The decisive difference when you do not have the user's env file:** a service's " +
         'environment can only be changed by `deploy`, which replaces it wholesale, so changing one ' +
         'variable means having all of them. An external takes a single key. If a user asks you to ' +
         'change a setting and you were not given their environment, an external is the answer — ' +
@@ -766,7 +779,10 @@ export function registerTools(server: McpServer, api: Api): void {
         project,
         resource,
         type: z.string().describe('what to provision, e.g. postgres, valkey, qdrant, iggy, s3 or external'),
-        size: z.string().optional().describe('the same envelope word a service takes. Changeable later. Refused for s3.'),
+        size: z
+          .string()
+          .optional()
+          .describe('the same envelope word a service takes. Changeable later. Refused for s3.'),
         storage_gb: z
           .number()
           .int()
@@ -777,7 +793,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .optional()
           .describe(
             'the values an `external` publishes to whatever declares it. Refused for every other ' +
-              'type, whose credentials are gagarin\'s to mint rather than yours to choose.',
+              "type, whose credentials are gagarin's to mint rather than yours to choose.",
           ),
       },
       annotations: writes('Add resource', { idempotent: true }),
@@ -835,7 +851,7 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'Rotate resource credentials',
       description:
         'New credentials, and everything holding them rolls to pick them up. For an `external` ' +
-        'the new values are yours to supply and required; for everything else they are gagarin\'s ' +
+        "the new values are yours to supply and required; for everything else they are gagarin's " +
         'to mint and supplying them is refused. An `external` usually holds several values, and ' +
         'there are two ways to change them: `set`/`unset` change the keys you name and leave the ' +
         'rest exactly as they are, while `env` says the bundle is now precisely this and drops ' +
@@ -934,7 +950,7 @@ export function registerTools(server: McpServer, api: Api): void {
       description:
         'Restores a backup into a **new** resource and never overwrites anything — which is why ' +
         'it needs no approval and cannot lose data.\n' +
-        'Name a resource that does not exist yet: gagarin creates it as the backup\'s own type ' +
+        "Name a resource that does not exist yet: gagarin creates it as the backup's own type " +
         '(a postgres for a postgres dump, a qdrant for a qdrant backup, an iggy for an iggy backup — you never choose) and ' +
         'answers at once. The data is poured in afterwards by the platform, usually within a ' +
         'minute or two, longer for a large backup. `source` is the resource whose newest backup ' +
@@ -957,12 +973,12 @@ export function registerTools(server: McpServer, api: Api): void {
         size: z
           .string()
           .optional()
-          .describe('the new resource\'s envelope word, as `add_resource` takes it. Changeable later.'),
+          .describe("the new resource's envelope word, as `add_resource` takes it. Changeable later."),
         storage_gb: z
           .number()
           .int()
           .optional()
-          .describe('how big the new resource\'s volume may get. Fixed at creation, like every volume.'),
+          .describe("how big the new resource's volume may get. Fixed at creation, like every volume."),
       },
       annotations: writes('Restore backup into a new resource', { idempotent: false }),
     },
@@ -987,7 +1003,7 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Show project alerts',
       description:
-        'Whether the caller is opted in to a project\'s alerts (`enabled`), how many devices they ' +
+        "Whether the caller is opted in to a project's alerts (`enabled`), how many devices they " +
         'have to receive them (`devices`), and the most recent notifications sent for the project. ' +
         '`enabled: false` means the caller is not told when a service goes down; `devices: 0` ' +
         'means nothing can reach them even if `enabled` is true.',
@@ -1006,7 +1022,7 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Set project alerts',
       description:
-        'Opts the caller in to a project\'s alerts. It is per member: it says nothing about anyone ' +
+        "Opts the caller in to a project's alerts. It is per member: it says nothing about anyone " +
         'else. Once on, the engine notifies when a service has been down for three minutes, when a ' +
         'deploy will not start, and when a container crashes and restarts — once when it starts ' +
         'and once when it ends. Notifications arrive in the my.gagarin.cloud console, installed ' +
@@ -1017,8 +1033,7 @@ export function registerTools(server: McpServer, api: Api): void {
       inputSchema: { project },
       annotations: writes('Set project alerts', { idempotent: true }),
     },
-    ({ project }) =>
-      attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`, { method: 'PUT' })),
+    ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`, { method: 'PUT' })),
   );
 
   tool(
@@ -1026,15 +1041,14 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Send a test alert',
       description:
-        'Sends one notification now to the caller\'s own devices, and answers how many it reached ' +
+        "Sends one notification now to the caller's own devices, and answers how many it reached " +
         '(`sent`). Use it after `set_alerts`, once your human has allowed notifications in a ' +
         'browser, so they see the channel work before it matters. Refused `alerts_off` when the ' +
         'caller has not opted in, and `no_devices` when they have no device yet.',
       inputSchema: { project },
       annotations: writes('Send a test alert', { idempotent: false }),
     },
-    ({ project }) =>
-      attempt(() => api.call(`/v1/projects/${seg(project)}/alerts/test`, { method: 'POST' })),
+    ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/alerts/test`, { method: 'POST' })),
   );
 
   tool(
@@ -1042,13 +1056,12 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Turn off project alerts',
       description:
-        'Opts the caller out of a project\'s alerts; other members\' are untouched. `set_alerts` turns ' +
+        "Opts the caller out of a project's alerts; other members' are untouched. `set_alerts` turns " +
         'them back on.',
       inputSchema: { project },
       annotations: writes('Turn off project alerts', { idempotent: true }),
     },
-    ({ project }) =>
-      attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`, { method: 'DELETE' })),
+    ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`, { method: 'DELETE' })),
   );
 
   // ─── people ──────────────────────────────────────────────────────────────
@@ -1096,9 +1109,7 @@ export function registerTools(server: McpServer, api: Api): void {
       annotations: writes('Unshare project', { idempotent: true }),
     },
     ({ project, email }) =>
-      attempt(() =>
-        api.call(`/v1/projects/${seg(project)}/members/${seg(email)}`, { method: 'DELETE' }),
-      ),
+      attempt(() => api.call(`/v1/projects/${seg(project)}/members/${seg(email)}`, { method: 'DELETE' })),
   );
 
   tool(
@@ -1138,14 +1149,13 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Withdraw ownership offer',
       description:
-        'Withdraws an offer that has not been accepted, and kills the link in the recipient\'s ' +
+        "Withdraws an offer that has not been accepted, and kills the link in the recipient's " +
         'inbox. There is no undoing one that has been accepted: the project is theirs, and only ' +
         'they can offer it back.',
       inputSchema: { project },
       annotations: writes('Withdraw ownership offer', { idempotent: true }),
     },
-    ({ project }) =>
-      attempt(() => api.call(`/v1/projects/${seg(project)}/transfer`, { method: 'DELETE' })),
+    ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/transfer`, { method: 'DELETE' })),
   );
 
   // ─── money ───────────────────────────────────────────────────────────────
@@ -1183,11 +1193,11 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Show referrals',
       description:
-        'The account\'s invite link and code, the terms, and who has signed up through it — ' +
+        "The account's invite link and code, the terms, and who has signed up through it — " +
         'display name, joined date, what they topped up, what the account earned from it, and ' +
         'when the earning window ends. Only an account that has topped up at least once can ' +
         'invite: before that, eligible is false and there is no link. Earnings are balance ' +
-        'credit, never cash. Read-only and the caller\'s own: invited users are never named ' +
+        "credit, never cash. Read-only and the caller's own: invited users are never named " +
         'beyond a GitHub login or masked email.',
       inputSchema: {},
       annotations: reads('Show referrals'),
@@ -1292,7 +1302,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'What is known about a project, packed to a token budget: pinned and top-ranked memories ' +
         'in full, the rest as one-line index entries with their ids, and an overview of kinds and ' +
         'tags. **Call this first when starting work on a project**, before reading code — it is ' +
-        'what the last session left for this one. Answers the memory service\'s own compact ' +
+        "what the last session left for this one. Answers the memory service's own compact " +
         'text, not JSON. Needs viewer.',
       inputSchema: { project, budget: memoryBudget },
       annotations: reads('Read project briefing'),
@@ -1308,7 +1318,7 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Search project memory',
       description:
-        'Hybrid semantic and keyword search over a project\'s memories: the top hits in full, the ' +
+        "Hybrid semantic and keyword search over a project's memories: the top hits in full, the " +
         'rest as index lines, plus the strongest linked neighbours of the top hits. **Search here ' +
         'before exploring code** — a question about why something is the way it is has often been ' +
         'answered already. With no `query` it browses by rank, and the filters narrow either. An ' +
@@ -1350,9 +1360,7 @@ export function registerTools(server: McpServer, api: Api): void {
     },
     ({ project, ids }) =>
       attempt(async () =>
-        rendered(
-          await api.call(`/v1/projects/${seg(project)}/memory${qs({ ids: ids.map(String) })}`),
-        ),
+        rendered(await api.call(`/v1/projects/${seg(project)}/memory${qs({ ids: ids.map(String) })}`)),
       ),
   );
 
@@ -1407,8 +1415,15 @@ export function registerTools(server: McpServer, api: Api): void {
         body: z.string().describe('markdown. The fact, and why, in as few tokens as it takes.'),
         tags: memoryTags,
         paths: memoryPaths,
-        pinned: z.boolean().optional().describe('always include in briefings. For the few things every session needs.'),
-        importance: z.number().int().optional().describe('1 to 5; ranks it against the rest. Absent is the middle.'),
+        pinned: z
+          .boolean()
+          .optional()
+          .describe('always include in briefings. For the few things every session needs.'),
+        importance: z
+          .number()
+          .int()
+          .optional()
+          .describe('1 to 5; ranks it against the rest. Absent is the middle.'),
         links: z.array(memoryId).optional().describe('memories this one relates to'),
         link_note: z.string().optional().describe('why they relate, one short line'),
         supersedes: memoryId.optional().describe('the memory this replaces; its links move to the new one'),
@@ -1486,9 +1501,7 @@ export function registerTools(server: McpServer, api: Api): void {
     },
     ({ project, id, ...body }) =>
       attempt(async () =>
-        rendered(
-          await api.call(`/v1/projects/${seg(project)}/memory/${id}/links`, { method: 'POST', body }),
-        ),
+        rendered(await api.call(`/v1/projects/${seg(project)}/memory/${id}/links`, { method: 'POST', body })),
       ),
   );
 
@@ -1536,9 +1549,7 @@ export function registerTools(server: McpServer, api: Api): void {
       annotations: destroys('Destroy service', { idempotent: true }),
     },
     ({ project, service }) =>
-      attempt(() =>
-        api.call(`/v1/projects/${seg(project)}/services/${seg(service)}`, { method: 'DELETE' }),
-      ),
+      attempt(() => api.call(`/v1/projects/${seg(project)}/services/${seg(service)}`, { method: 'DELETE' })),
   );
 
   tool(

@@ -321,10 +321,7 @@ test('a restore names the new resource in the path and the old one in the body',
     });
     // Getting these the wrong way round would overwrite a live database, which
     // is the one thing this endpoint is built never to do.
-    assert.equal(
-      kit.seen[0]?.url,
-      'https://api.example/v1/projects/shop/resources/db-restored/restore',
-    );
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/resources/db-restored/restore');
     assert.deepEqual(kit.seen[0]?.body, { source: 'db' });
   } finally {
     await kit[Symbol.asyncDispose]();
@@ -465,10 +462,7 @@ test('a name cannot climb out of its segment', async () => {
       name: 'status',
       arguments: { project: '../../v1/credentials?x=1' },
     });
-    assert.equal(
-      kit.seen[0]?.url,
-      'https://api.example/v1/projects/..%2F..%2Fv1%2Fcredentials%3Fx=1/status',
-    );
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/..%2F..%2Fv1%2Fcredentials%3Fx=1/status');
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -535,10 +529,11 @@ test('the run tool offers no port and no volume', async () => {
     for (const absent of ['port', 'volume_path', 'volume_size_gb']) {
       assert.ok(!fields.includes(absent), `a job has no ${absent}`);
     }
-    assert.deepEqual(
-      fields.filter((f) => ['project', 'service', 'image'].includes(f)).sort(),
-      ['image', 'project', 'service'],
-    );
+    assert.deepEqual(fields.filter((f) => ['project', 'service', 'image'].includes(f)).sort(), [
+      'image',
+      'project',
+      'service',
+    ]);
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -980,7 +975,9 @@ test('a duplicate refusal shows the near-duplicates it collided with', async () 
           message: 'not saved: a near-duplicate exists',
           fix_hint: 'update or supersede one of the listed memories, or force',
         },
-        duplicates: [{ seq: 12, kind: 'gotcha', title: 'Stripe webhooks need the raw body', similarity: 0.91 }],
+        duplicates: [
+          { seq: 12, kind: 'gotcha', title: 'Stripe webhooks need the raw body', similarity: 0.91 },
+        ],
         text: 'Not saved — near-duplicate of:\n#12 gotcha · Stripe webhooks need the raw body [0.91]',
       },
       409,
@@ -1029,7 +1026,10 @@ test('a refusal with extra fields and no text shows them as JSON', async () => {
 // it always has, with nothing appended.
 test('a plain refusal renders exactly as before', async () => {
   const kit = await connected(() =>
-    json({ error: { code: 'project_not_found', message: 'no such project', fix_hint: 'try `projects`' } }, 404),
+    json(
+      { error: { code: 'project_not_found', message: 'no such project', fix_hint: 'try `projects`' } },
+      404,
+    ),
   );
   try {
     const result: any = await kit.client.callTool({
@@ -1275,7 +1275,7 @@ test('test_alerts and alerts_off reach their routes', async () => {
   }
 });
 
-test('referrals is a read of the caller\'s own /v1/referrals, and cannot write', async () => {
+test("referrals is a read of the caller's own /v1/referrals, and cannot write", async () => {
   const body = {
     eligible: true,
     code: '7K3M9QXA',
@@ -1306,9 +1306,7 @@ test('referrals is a read of the caller\'s own /v1/referrals, and cannot write',
 });
 
 test('referrals passes an engine refusal through', async () => {
-  const kit = await connected(() =>
-    json({ error: { code: 'unauthorized', message: 'no' } }, 401),
-  );
+  const kit = await connected(() => json({ error: { code: 'unauthorized', message: 'no' } }, 401));
   try {
     const result: any = await kit.client.callTool({ name: 'referrals', arguments: {} });
     assert.equal(result.isError, true);

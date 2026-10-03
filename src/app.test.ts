@@ -85,10 +85,7 @@ const post = (base: string, headers: Record<string, string> = {}) =>
     body: JSON.stringify(initialize),
   });
 
-for (const path of [
-  '/.well-known/oauth-protected-resource/mcp',
-  '/.well-known/oauth-protected-resource',
-]) {
+for (const path of ['/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-protected-resource']) {
   test(`${path} names this resource and the engine as its authorization server`, async () => {
     await listening(async (base) => {
       const res = await fetch(base + path);

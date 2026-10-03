@@ -85,10 +85,7 @@ export function createApp(config: AppConfig): Express {
       'Access-Control-Allow-Headers',
       'Authorization, Content-Type, Accept, Last-Event-ID, MCP-Session-Id, MCP-Protocol-Version',
     );
-    res.setHeader(
-      'Access-Control-Expose-Headers',
-      'MCP-Session-Id, MCP-Protocol-Version, WWW-Authenticate',
-    );
+    res.setHeader('Access-Control-Expose-Headers', 'MCP-Session-Id, MCP-Protocol-Version, WWW-Authenticate');
     res.setHeader('Access-Control-Max-Age', '86400');
     if (req.method === 'OPTIONS') {
       res.status(204).end();
@@ -203,7 +200,10 @@ export function createApp(config: AppConfig): Express {
       acts on.
     */
     if (!token) {
-      refuse(res, 'this gagarin MCP server needs a credential: sign in over OAuth, or send one in the Authorization header');
+      refuse(
+        res,
+        'this gagarin MCP server needs a credential: sign in over OAuth, or send one in the Authorization header',
+      );
       return;
     }
 
