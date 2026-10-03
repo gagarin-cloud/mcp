@@ -793,6 +793,55 @@ test('tools/list matches the recorded annotations', async () => {
   }
 });
 
+// The logs route reads its window from the query string (core#64). Absent
+// values stay absent so the engine's defaults — the latest 200 lines of the
+// last week — are the defaults, and a `next` passes back as `until` unchanged.
+test('logs sends its window as a query string, and only what was given', async () => {
+  const kit = await connected(() => json({ logs: 'a\n', source: 'store', next: null }));
+  try {
+    await kit.client.callTool({ name: 'logs', arguments: { project: 'shop', service: 'web' } });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/services/web/logs');
+
+    await kit.client.callTool({
+      name: 'logs',
+      arguments: {
+        project: 'shop',
+        service: 'web',
+        since: '2d',
+        until: '2026-10-01T12:00:00.5+00:00',
+        limit: 50,
+        q: 'panic: x',
+        previous: false,
+      },
+    });
+    assert.equal(
+      kit.seen[1]?.url,
+      'https://api.example/v1/projects/shop/services/web/logs' +
+        '?since=2d&until=2026-10-01T12%3A00%3A00.5%2B00%3A00&limit=50&q=panic%3A%20x&previous=false',
+    );
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// What the engine does with previous=true and a window, said as it does it:
+// until does not apply to the crashed container and is ignored, since still
+// bounds it (core#64). "Ignores the window" sent agents to drop since, and
+// told them until was harmless when the engine refused it.
+test('logs describes previous as the engine treats it', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const props = (tools.find((t) => t.name === 'logs')!.inputSchema as any).properties;
+    const previous = String(props.previous.description);
+    assert.doesNotMatch(previous, /ignores the window/i);
+    assert.match(previous, /until.*ignored/i);
+    assert.match(previous, /since still/i);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 /*
   Project memory.
 

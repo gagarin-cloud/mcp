@@ -228,8 +228,9 @@ wrong:
 - A service that will not start: \`logs\`, then \`history\` to see what changed,
   then \`rollback\`.
 - A job that did not do its work: \`status\` for the exit code, \`logs\` for the
-  run. Only the latest run's logs are readable, so read them before running it
-  again.
+  run. A week of runs is kept; \`since\` narrows it to the one you mean.
+- Something that happened earlier: \`logs\` with \`since\`, \`q\` for the line you
+  are after, and \`next\` as \`until\` to page back.
 - A call between two services that hangs: \`deps\`. Default-denied looks like a
   timeout, not a refusal.
 - A \`remember\` refused with \`memory_duplicate\`: the refusal lists what it
