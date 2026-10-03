@@ -540,13 +540,43 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Show logs',
       description:
-        "The last 200 lines from a service, or from a job's latest run. A tail, not a stream — " +
-        'there is no more, and for a job there is no way to read a run older than the last one.',
-      inputSchema: { project, service },
+        "What a service, or a job's runs, printed — oldest first, the latest 200 lines unless asked " +
+        'otherwise. A week is kept, including containers that crashed, were redeployed or were evicted, ' +
+        "so a job's earlier runs are readable too. `source` says where the lines came from: `store` is " +
+        'everything kept; `cluster` is only what the node still had, and `notice` says why. When `next` ' +
+        'is set there are older lines: pass it back as `until` for the page before. A read, not a stream.',
+      inputSchema: {
+        project,
+        service,
+        since: z
+          .string()
+          .optional()
+          .describe(
+            'start of the window: a duration back from now (30m, 6h, 2d) or an RFC 3339 time. Absent means a week.',
+          ),
+        until: z
+          .string()
+          .optional()
+          .describe(
+            'end of the window, the same forms — usually the `next` of the previous answer. Absent means now.',
+          ),
+        limit: z
+          .number()
+          .int()
+          .optional()
+          .describe('at most this many lines, the latest in the window. Absent means 200.'),
+        q: z.string().optional().describe('only lines containing this string, exactly as written'),
+        previous: z
+          .boolean()
+          .optional()
+          .describe(
+            'the container before the latest restart, from the node — for a crash loop. until does not apply and is ignored; since still bounds it.',
+          ),
+      },
       annotations: reads('Show logs'),
     },
-    ({ project, service }) =>
-      attempt(() => api.call(`/v1/projects/${seg(project)}/services/${seg(service)}/logs`)),
+    ({ project, service, ...params }) =>
+      attempt(() => api.call(`/v1/projects/${seg(project)}/services/${seg(service)}/logs${qs(params)}`)),
   );
 
   tool(
