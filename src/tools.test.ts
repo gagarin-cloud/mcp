@@ -518,6 +518,47 @@ test('a deploy is never a job', async () => {
   }
 });
 
+test('run passes timeout_seconds through when given and omits it otherwise', async () => {
+  const kit = await connected(() => json({ name: 'migrate', kind: 'job', revision: 1 }));
+  try {
+    const base = { project: 'shop', service: 'migrate', image: 'reg/shop/migrate:v3' };
+    await kit.client.callTool({ name: 'run', arguments: { ...base, timeout_seconds: 90 } });
+    assert.equal((kit.seen[0]?.body as any).timeout_seconds, 90);
+    assert.equal((kit.seen[0]?.body as any).kind, 'job');
+    await kit.client.callTool({ name: 'run', arguments: base });
+    assert.ok(
+      !('timeout_seconds' in (kit.seen[1]?.body as object)),
+      'absent must mean keep the current timeout, not send a value',
+    );
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('run refuses a timeout outside 1..3600 or not whole before any call', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const base = { project: 'shop', service: 'migrate', image: 'reg/shop/migrate:v3' };
+    for (const bad of [0, 3601, 1.5, -1]) {
+      const refused = await kit.client
+        .callTool({ name: 'run', arguments: { ...base, timeout_seconds: bad } })
+        .then((r) => r.isError === true)
+        .catch(() => true);
+      assert.ok(refused, `timeout_seconds ${bad} should be refused`);
+    }
+    assert.equal(kit.seen.length, 0, 'a refused timeout must never reach the API');
+    for (const ok of [1, 3600]) {
+      const r = await kit.client.callTool({
+        name: 'run',
+        arguments: { ...base, timeout_seconds: ok },
+      });
+      assert.ok(!r.isError, `timeout_seconds ${ok} is the edge of the range`);
+    }
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 // A job has neither, and the engine refuses both with codes of their own. The
 // schema is what stops an agent trying in the first place.
 test('the run tool offers no port and no volume', async () => {

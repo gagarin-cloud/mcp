@@ -57,7 +57,8 @@ Eight things that are true of every call here:
 7. Two kinds of thing run here. A **service** listens on a port and is expected
    to stay up; a **job** runs to completion and listens on nothing — a migration,
    a backfill. \`deploy\` makes the first, \`run\` the second, and a name is one or
-   the other for good. Nothing can be told to reach a job.
+   the other for good. Nothing can be told to reach a job. A run is stopped at
+   60 minutes; \`timeout_seconds\` on \`run\` sets it tighter.
 8. You can deploy; you cannot take anything away. Every deletion, every released
    address, and any \`set_deps\` that drops an edge the service currently holds
    answers \`approval_required\` and emails the account owner a button. Call it
@@ -157,6 +158,9 @@ and read as a crash loop while the meter ran.
    exit code. \`logs\` reads that run. A non-zero exit is reported once and never
    retried by the platform, because nothing here can know whether running your
    script twice is safe.
+5. A run is stopped after 60 minutes at most. Pass \`timeout_seconds\` (1 to
+   3600) to stop it sooner; the clock starts at submission, so pulling the image
+   uses some of it. Leave it out and the job keeps the timeout its last run had.
 
 \`rollback\` on a job re-runs an older image under a new revision. Only ask for
 one if a second run is safe.

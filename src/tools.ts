@@ -494,7 +494,10 @@ export function registerTools(server: McpServer, api: Api): void {
         "does that on a machine, exiting with the script's own code, which is what CI wants.\n" +
         'Calling this again is the next run, not a restatement: each one is a new revision, and ' +
         "the three most recent are kept so the previous run's logs survive. A name that is " +
-        'already a service is refused `not_a_job` — the two are not two states of one thing.',
+        'already a service is refused `not_a_job` — the two are not two states of one thing.\n' +
+        'A run is stopped after `timeout_seconds` — at most, and by default, 3600 (60 minutes) — ' +
+        'counted from submission, so pulling the image uses some of it. Left out, a job keeps the ' +
+        'timeout its last run had. Billed per minute, rounded up.',
       inputSchema: {
         project,
         service: z.string().describe('job name, unique within the project among services too'),
@@ -522,6 +525,18 @@ export function registerTools(server: McpServer, api: Api): void {
             'resources and services this run may reach while it runs, added to whatever it ' +
               'already declares. A migration needs its database named here, or its connection ' +
               'hangs rather than failing.',
+          ),
+        timeout_seconds: z
+          .number()
+          .int()
+          .min(1)
+          .max(3600)
+          .optional()
+          .describe(
+            'stop the run after this many seconds, 1 to 3600 (the 60-minute ceiling, also the ' +
+              'default for a new job). Counted from submission, so pulling the image uses some of ' +
+              'it. Absent keeps the timeout the job already has. Refused `invalid_timeout` outside ' +
+              'the range.',
           ),
       },
       annotations: writes('Run job', { idempotent: false }),
