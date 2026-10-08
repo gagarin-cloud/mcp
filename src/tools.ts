@@ -363,10 +363,13 @@ export function registerTools(server: McpServer, api: Api): void {
         'project has cost since midnight UTC. A job has none of the service vocabulary — no ' +
         'ready count, no port, no address — and carries its latest run instead: which revision, ' +
         'what phase, how long it took and the exit code. That is the only way to learn how a ' +
-        '`run` ended. It carries no environment values, at any role: a service lists the names ' +
-        'it was deployed with as `env_keys` — what a redeploy has to restate — and never their ' +
-        "values. It does not carry a resource's environment either: what a resource publishes by " +
-        'name is `resource_keys`, and the values are `resource_secrets`.',
+        '`run` ended. A scheduled job also carries `schedule` and `time_zone` fields, and ' +
+        '`actual.schedule` with `next_at`, `last_scheduled_at` (RFC 3339, omitted if never ' +
+        'fired), and `suspended`; a scheduled job with no run yet is waiting, not failing. It ' +
+        'carries no environment values, at any role: a service lists the names it was deployed ' +
+        'with as `env_keys` — what a redeploy has to restate — and never their values. It does ' +
+        "not carry a resource's environment either: what a resource publishes by name is " +
+        '`resource_keys`, and the values are `resource_secrets`.',
       inputSchema: { project },
       annotations: reads('Show project status'),
     },
@@ -497,7 +500,14 @@ export function registerTools(server: McpServer, api: Api): void {
         'already a service is refused `not_a_job` — the two are not two states of one thing.\n' +
         'A run is stopped after `timeout_seconds` — at most, and by default, 3600 (60 minutes) — ' +
         'counted from submission, so pulling the image uses some of it. Left out, a job keeps the ' +
-        'timeout its last run had. Billed per minute, rounded up.',
+        'timeout its last run had. Billed per minute, rounded up.\n' +
+        'With `schedule`, a job is **scheduled**: nothing runs now, and each firing is a run that ' +
+        '`status` and `logs` report; a firing while the previous run is still going is skipped. ' +
+        'Running a scheduled job again without `schedule` keeps its schedule and changes what the ' +
+        'next firing runs. Adding `schedule` to a one-shot job makes it scheduled, refused ' +
+        '`job_running` while its run is going. A schedule cannot be removed — `run` means "run ' +
+        'this", so a way to switch the schedule off would also fire a run; destroy the job and run ' +
+        'it again instead. Each firing is billed for the time it ran; a waiting schedule costs nothing.',
       inputSchema: {
         project,
         service: z.string().describe('job name, unique within the project among services too'),
@@ -537,6 +547,26 @@ export function registerTools(server: McpServer, api: Api): void {
               'default for a new job). Counted from submission, so pulling the image uses some of ' +
               'it. Absent keeps the timeout the job already has. Refused `invalid_timeout` outside ' +
               'the range.',
+          ),
+        schedule: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'cron expression for scheduled execution: 5-field cron (e.g. "0 3 * * *") or ' +
+              'macro (@hourly, @daily, @weekly, @monthly, @yearly/@annually, @midnight). ' +
+              'Every-minute firing allowed. Absent keeps the current schedule. Cannot be ' +
+              'cleared — destroy the job to stop it. Refused `invalid_schedule` if malformed, ' +
+              'contains CRON_TZ/TZ prefix, or empty.',
+          ),
+        time_zone: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'IANA time zone name for schedule firing, e.g. "Europe/Berlin", "America/New_York". ' +
+              'Defaults to UTC. Absent keeps the current zone. Refused `invalid_time_zone` if ' +
+              'not a recognized IANA zone name.',
           ),
       },
       annotations: writes('Run job', { idempotent: false }),
