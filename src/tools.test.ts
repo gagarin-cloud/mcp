@@ -580,14 +580,8 @@ test('run omits schedule and time_zone when not given', async () => {
   try {
     const base = { project: 'shop', service: 'backup', image: 'reg/shop/backup:v3' };
     await kit.client.callTool({ name: 'run', arguments: base });
-    assert.ok(
-      !('schedule' in (kit.seen[0]?.body as object)),
-      'absent schedule must not be sent',
-    );
-    assert.ok(
-      !('time_zone' in (kit.seen[0]?.body as object)),
-      'absent time_zone must not be sent',
-    );
+    assert.ok(!('schedule' in (kit.seen[0]?.body as object)), 'absent schedule must not be sent');
+    assert.ok(!('time_zone' in (kit.seen[0]?.body as object)), 'absent time_zone must not be sent');
   } finally {
     await kit[Symbol.asyncDispose]();
   }
