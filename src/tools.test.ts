@@ -559,6 +559,54 @@ test('run refuses a timeout outside 1..3600 or not whole before any call', async
   }
 });
 
+test('run passes schedule and time_zone through when given', async () => {
+  const kit = await connected(() => json({ name: 'backup', kind: 'job', revision: 1 }));
+  try {
+    const base = { project: 'shop', service: 'backup', image: 'reg/shop/backup:v3' };
+    await kit.client.callTool({
+      name: 'run',
+      arguments: { ...base, schedule: '0 3 * * *', time_zone: 'Europe/Berlin' },
+    });
+    assert.equal((kit.seen[0]?.body as any).schedule, '0 3 * * *');
+    assert.equal((kit.seen[0]?.body as any).time_zone, 'Europe/Berlin');
+    assert.equal((kit.seen[0]?.body as any).kind, 'job');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('run omits schedule and time_zone when not given', async () => {
+  const kit = await connected(() => json({ name: 'backup', kind: 'job', revision: 1 }));
+  try {
+    const base = { project: 'shop', service: 'backup', image: 'reg/shop/backup:v3' };
+    await kit.client.callTool({ name: 'run', arguments: base });
+    assert.ok(!('schedule' in (kit.seen[0]?.body as object)), 'absent schedule must not be sent');
+    assert.ok(!('time_zone' in (kit.seen[0]?.body as object)), 'absent time_zone must not be sent');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('run refuses empty schedule or time_zone before any call', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const base = { project: 'shop', service: 'backup', image: 'reg/shop/backup:v3' };
+    const refused = await kit.client
+      .callTool({ name: 'run', arguments: { ...base, schedule: '' } })
+      .then((r) => r.isError === true)
+      .catch(() => true);
+    assert.ok(refused, 'empty schedule should be refused');
+    const refused2 = await kit.client
+      .callTool({ name: 'run', arguments: { ...base, time_zone: '' } })
+      .then((r) => r.isError === true)
+      .catch(() => true);
+    assert.ok(refused2, 'empty time_zone should be refused');
+    assert.equal(kit.seen.length, 0, 'a refused schedule/time_zone must never reach the API');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 // A job has neither, and the engine refuses both with codes of their own. The
 // schema is what stops an agent trying in the first place.
 test('the run tool offers no port and no volume', async () => {
