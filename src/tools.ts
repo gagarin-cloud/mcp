@@ -502,7 +502,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'counted from submission, so pulling the image uses some of it. Left out, a job keeps the ' +
         'timeout its last run had. Billed per minute, rounded up.\n' +
         'With `schedule`, a job is **scheduled**: nothing runs now, and each firing is a run that ' +
-        '`status` and `logs` report; a firing while the previous run is still going is skipped. ' +
+        '`status` and `logs` report; a firing while the previous run is still going waits and starts when it ends. ' +
         'Running a scheduled job again without `schedule` keeps its schedule and changes what the ' +
         'next firing runs. Adding `schedule` to a one-shot job makes it scheduled, refused ' +
         '`job_running` while its run is going. A schedule cannot be removed — `run` means "run ' +
