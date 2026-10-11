@@ -873,11 +873,13 @@ export function registerTools(server: McpServer, api: Api): void {
         'declares the resource receives `<NAME>_PUBLIC_URL` while it is public and is restarted ' +
         'for it. Only make public what is genuinely meant to be — **confirm with the user first**, ' +
         'because anything fetched while it was open cannot be taken back. Egress is free today but ' +
-        'a public bucket can be hot, so mention a heavy-traffic one. There is no CORS, so a ' +
-        "browser's cross-origin fetch fails; links and images work. Idempotent. Only an s3 " +
+        'a public bucket can be hot, so mention a heavy-traffic one. It also sets a CORS rule ' +
+        '(any origin, GET and HEAD only, no credentials), so browsers on any site can `fetch` ' +
+        'it, load its fonts and modules, and read its images; it adds no exposure. Idempotent, ' +
+        'and re-running it gives CORS to a bucket published before it existed. Only an s3 ' +
         'resource can be public (`not_a_bucket`); a service gets an address with `add_domain`. ' +
         '`publish_failed` changed nothing and is safe to retry. Needs the editor role and a ' +
-        'deploy-scope credential. `unpublish_resource` undoes it.',
+        'deploy-scope credential. `unpublish_resource` undoes it and removes the CORS rule.',
       inputSchema: { project, resource },
       annotations: destroys('Make bucket public', { idempotent: true }),
     },
