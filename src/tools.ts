@@ -499,8 +499,10 @@ export function registerTools(server: McpServer, api: Api): void {
         "the three most recent are kept so the previous run's logs survive. A name that is " +
         'already a service is refused `not_a_job` — the two are not two states of one thing.\n' +
         'A run is stopped after `timeout_seconds` — at most, and by default, 3600 (60 minutes) — ' +
-        'counted from submission, so pulling the image uses some of it. Left out, a job keeps the ' +
-        'timeout its last run had. Billed per minute, rounded up.\n' +
+        'counted from when the run gets a machine, so pulling the image uses some of it and waiting ' +
+        'for a machine does not. Left out, a job keeps the timeout its last run had. Billed per ' +
+        'minute, rounded up, from when the container starts: waiting for a machine and pulling ' +
+        'the image are not billed.\n' +
         'With `schedule`, a job is **scheduled**: nothing runs now, and each firing is a run that ' +
         '`status` and `logs` report; a firing while the previous run is still going waits and starts when it ends. ' +
         'Running a scheduled job again without `schedule` keeps its schedule and changes what the ' +
@@ -544,9 +546,9 @@ export function registerTools(server: McpServer, api: Api): void {
           .optional()
           .describe(
             'stop the run after this many seconds, 1 to 3600 (the 60-minute ceiling, also the ' +
-              'default for a new job). Counted from submission, so pulling the image uses some of ' +
-              'it. Absent keeps the timeout the job already has. Refused `invalid_timeout` outside ' +
-              'the range.',
+              'default for a new job). Counted from when the run gets a machine, so pulling the image ' +
+              'uses some of it and waiting for a machine does not. Absent keeps the timeout the job ' +
+              'already has. Refused `invalid_timeout` outside the range.',
           ),
         schedule: z
           .string()

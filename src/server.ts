@@ -159,8 +159,9 @@ and read as a crash loop while the meter ran.
    retried by the platform, because nothing here can know whether running your
    script twice is safe.
 5. A run is stopped after 60 minutes at most. Pass \`timeout_seconds\` (1 to
-   3600) to stop it sooner; the clock starts at submission, so pulling the image
-   uses some of it. Leave it out and the job keeps the timeout its last run had.
+   3600) to stop it sooner; the clock starts when the run gets a machine, so
+   pulling the image uses some of it and waiting for a machine does not. Leave it
+   out and the job keeps the timeout its last run had.
 
 \`rollback\` on a job re-runs an older image under a new revision. Only ask for
 one if a second run is safe.
