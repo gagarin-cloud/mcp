@@ -867,9 +867,9 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Make bucket public',
       description:
-        'Makes an `s3` resource\'s whole bucket listable and readable by **anyone on the internet**, ' +
+        "Makes an `s3` resource's whole bucket listable and readable by **anyone on the internet**, " +
         'with no key: every object name is visible, not only the ones you meant to link to. ' +
-        'Writing still needs the key. Answers with the bucket\'s address, and every service that ' +
+        "Writing still needs the key. Answers with the bucket's address, and every service that " +
         'declares the resource receives `<NAME>_PUBLIC_URL` while it is public and is restarted ' +
         'for it. Only make public what is genuinely meant to be — **confirm with the user first**, ' +
         'because anything fetched while it was open cannot be taken back. Egress is free today but ' +
