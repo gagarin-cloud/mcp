@@ -135,7 +135,8 @@ read like a platform fault:
 
 ## Adding object storage
 
-1. \`add_resource\` with type \`s3\`. It is a private S3-compatible bucket.
+1. \`add_resource\` with type \`s3\`. It is an S3-compatible bucket, private until
+   \`publish_resource\` makes it public.
 2. \`set_deps\` on the service, listing the resource. The service receives
    \`<NAME>_ENDPOINT\`, \`<NAME>_REGION\`, \`<NAME>_BUCKET\`, \`<NAME>_ACCESS_KEY_ID\`
    and \`<NAME>_SECRET_ACCESS_KEY\`.
@@ -143,6 +144,11 @@ read like a platform fault:
    publishes. It has no size and no backups, it is reached over the internet
    (the key, not the graph, is the boundary), and destroying it needs approval
    and deletes every object.
+4. \`publish_resource\` makes the whole bucket listable and readable by anyone,
+   with no key — every object name included; writes still need the key. Confirm
+   with the user first, and only for what is meant to be public. Dependents then
+   receive \`<NAME>_PUBLIC_URL\`; there is no CORS, so links and images work but
+   a browser's cross-origin fetch does not. \`unpublish_resource\` undoes it.
 
 ## Running a migration
 

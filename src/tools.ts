@@ -248,10 +248,17 @@ export const APPROVAL_REQUIRED: ReadonlySet<string> = new Set([
  * `revoke_credential` stops a credential working the moment it is called, and
  * `rotate_resource` invalidates the old credentials irreversibly. Both are
  * destructive to an agent's eye and neither goes through `requireElevation`.
+ *
+ * `publish_resource` discloses every object in a bucket to the internet, which
+ * nothing can recall, so a client should confirm it; `unpublish_resource` is its
+ * pair and is classed with it so the two read as one decision. Neither goes
+ * through `requireElevation` — the editor role is the whole of the gate.
  */
 export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
+  'publish_resource',
   'revoke_credential',
   'rotate_resource',
+  'unpublish_resource',
 ]);
 
 /**
@@ -821,7 +828,8 @@ export function registerTools(server: McpServer, api: Api): void {
         'change a setting and you were not given their environment, an external is the answer — ' +
         'and if that setting currently lives in a deploy env, say so and offer to move it. ' +
         'Keys are published under the resource name — `config` holding LOG_LEVEL publishes ' +
-        'CONFIG_LOG_LEVEL — so name the resource for how the application wants to read it.',
+        'CONFIG_LOG_LEVEL — so name the resource for how the application wants to read it. ' +
+        'An `s3` bucket is private until `publish_resource` says otherwise.',
       inputSchema: {
         project,
         resource,
@@ -850,6 +858,53 @@ export function registerTools(server: McpServer, api: Api): void {
         api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}`, {
           method: 'PUT',
           body,
+        }),
+      ),
+  );
+
+  tool(
+    'publish_resource',
+    {
+      title: 'Make bucket public',
+      description:
+        "Makes an `s3` resource's whole bucket listable and readable by **anyone on the internet**, " +
+        'with no key: every object name is visible, not only the ones you meant to link to. ' +
+        "Writing still needs the key. Answers with the bucket's address, and every service that " +
+        'declares the resource receives `<NAME>_PUBLIC_URL` while it is public and is restarted ' +
+        'for it. Only make public what is genuinely meant to be — **confirm with the user first**, ' +
+        'because anything fetched while it was open cannot be taken back. Egress is free today but ' +
+        'a public bucket can be hot, so mention a heavy-traffic one. There is no CORS, so a ' +
+        "browser's cross-origin fetch fails; links and images work. Idempotent. Only an s3 " +
+        'resource can be public (`not_a_bucket`); a service gets an address with `add_domain`. ' +
+        '`publish_failed` changed nothing and is safe to retry. Needs the editor role and a ' +
+        'deploy-scope credential. `unpublish_resource` undoes it.',
+      inputSchema: { project, resource },
+      annotations: destroys('Make bucket public', { idempotent: true }),
+    },
+    ({ project, resource }) =>
+      attempt(() =>
+        api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/public`, {
+          method: 'PUT',
+        }),
+      ),
+  );
+
+  tool(
+    'unpublish_resource',
+    {
+      title: 'Make bucket private',
+      description:
+        'Makes a public `s3` bucket private again: only its key reads it. Services that declare it ' +
+        'lose `<NAME>_PUBLIC_URL` and are restarted without it, so anything building links from ' +
+        'that variable breaks. Anything already fetched stays fetched. Idempotent, and safe on a ' +
+        'bucket that is already private. Needs the editor role and a deploy-scope credential.',
+      inputSchema: { project, resource },
+      annotations: destroys('Make bucket private', { idempotent: true }),
+    },
+    ({ project, resource }) =>
+      attempt(() =>
+        api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/public`, {
+          method: 'DELETE',
         }),
       ),
   );

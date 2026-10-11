@@ -312,6 +312,46 @@ test('an address is asked for by name, and released by query', async () => {
   }
 });
 
+test('a bucket is opened and closed on the same path, with no body', async () => {
+  const kit = await connected(() => json({ ok: true }));
+  try {
+    await kit.client.callTool({
+      name: 'publish_resource',
+      arguments: { project: 'shop', resource: 'files' },
+    });
+    assert.equal(kit.seen[0]?.method, 'PUT');
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/resources/files/public');
+    assert.equal(kit.seen[0]?.body, undefined);
+
+    await kit.client.callTool({
+      name: 'unpublish_resource',
+      arguments: { project: 'shop', resource: 'files' },
+    });
+    assert.equal(kit.seen[1]?.method, 'DELETE');
+    assert.equal(kit.seen[1]?.url, 'https://api.example/v1/projects/shop/resources/files/public');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// The annotation tells a client to confirm; the description has to say what is
+// being confirmed, because "destructive" alone does not read as "discloses".
+test('publish_resource says who can read the bucket and what stays closed', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const publish = tools.find((t) => t.name === 'publish_resource')!;
+    assert.equal(publish.annotations?.destructiveHint, true);
+    assert.equal(publish.annotations?.idempotentHint, true);
+    assert.match(String(publish.description), /anyone on the internet/i);
+    assert.match(String(publish.description), /writing still needs the key/i);
+    assert.match(String(publish.description), /_PUBLIC_URL/);
+    assert.match(String(publish.description), /confirm/i);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 test('a restore names the new resource in the path and the old one in the body', async () => {
   const kit = await connected(() => json({ ok: true }));
   try {
