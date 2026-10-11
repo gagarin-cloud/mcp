@@ -46,6 +46,7 @@ export const TOOLS_SNAPSHOT: Readonly<Record<string, SnapshotRow>> = {
   memory_update: ['Update a memory', false, false, true, false],
   platform_health: ['Check platform health', true, false, true, false],
   projects: ['List projects', true, false, true, false],
+  publish_resource: ['Make bucket public', false, true, true, false],
   referrals: ['Show referrals', true, false, true, false],
   remember: ['Save a memory', false, false, false, false],
   remove_domain: ['Remove domain', false, true, true, false],
@@ -63,6 +64,7 @@ export const TOOLS_SNAPSHOT: Readonly<Record<string, SnapshotRow>> = {
   test_alerts: ['Send a test alert', false, false, false, false],
   transfer: ['Transfer project ownership', false, true, true, false],
   unshare: ['Unshare project', false, false, true, false],
+  unpublish_resource: ['Make bucket private', false, true, true, false],
   untransfer: ['Withdraw ownership offer', false, false, true, false],
   whoami: ['Show current account', true, false, true, false],
 };
