@@ -147,8 +147,10 @@ read like a platform fault:
 4. \`publish_resource\` makes the whole bucket listable and readable by anyone,
    with no key — every object name included; writes still need the key. Confirm
    with the user first, and only for what is meant to be public. Dependents then
-   receive \`<NAME>_PUBLIC_URL\`; there is no CORS, so links and images work but
-   a browser's cross-origin fetch does not. \`unpublish_resource\` undoes it.
+   receive \`<NAME>_PUBLIC_URL\`; it also sets a CORS rule (any origin, GET
+   and HEAD only, no credentials), so browsers on any site can fetch it, load
+   its fonts and modules, and read its images. \`unpublish_resource\` undoes
+   both.
 
 ## Running a migration
 
