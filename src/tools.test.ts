@@ -599,11 +599,11 @@ test('run refuses a timeout outside 1..3600 or not whole before any call', async
   }
 });
 
-test('run passes ttl_seconds through when given and refuses it outside 1..28800', async () => {
+test('run passes ttl_seconds through when given and refuses it outside 60..28800', async () => {
   const kit = await connected(() => json({ name: 'migrate', kind: 'job', revision: 1 }));
   try {
     const base = { project: 'shop', service: 'migrate', image: 'reg/shop/migrate:v3' };
-    for (const bad of [0, 28801, 1.5, -1]) {
+    for (const bad of [0, 1, 59, 28801, 60.5, -1]) {
       const refused = await kit.client
         .callTool({ name: 'run', arguments: { ...base, ttl_seconds: bad } })
         .then((r) => r.isError === true)

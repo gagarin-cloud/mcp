@@ -174,7 +174,7 @@ and read as a crash loop while the meter ran.
    out and the job keeps the timeout its last run had.
 6. Read the run within 8 hours of it ending. After that a one-shot job is
    removed with its run, and a scheduled job loses that firing. Pass
-   \`ttl_seconds\` (1 to 28800) to clean up sooner; leave it out and the job
+   \`ttl_seconds\` (60 to 28800) to clean up sooner; leave it out and the job
    keeps the time to live it has.
 
 \`rollback\` on a job re-runs an older image under a new revision. Only ask for

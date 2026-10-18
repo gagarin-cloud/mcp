@@ -565,11 +565,11 @@ export function registerTools(server: McpServer, api: Api): void {
         ttl_seconds: z
           .number()
           .int()
-          .min(1)
+          .min(60)
           .max(28800)
           .optional()
           .describe(
-            'keep a finished run this many seconds after it ends, 1 to 28800 (the 8-hour ceiling, ' +
+            'keep a finished run this many seconds after it ends, 60 to 28800 (the 8-hour ceiling, ' +
               'also the default for a new job). Then a one-shot job is removed along with its run; ' +
               'a scheduled job keeps firing and each finished firing is removed on its own. Absent ' +
               'keeps the time to live the job already has. Refused `invalid_ttl` outside the range.',
