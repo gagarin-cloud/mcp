@@ -58,7 +58,9 @@ Eight things that are true of every call here:
    to stay up; a **job** runs to completion and listens on nothing — a migration,
    a backfill. \`deploy\` makes the first, \`run\` the second, and a name is one or
    the other for good. Nothing can be told to reach a job. A run is stopped at
-   60 minutes; \`timeout_seconds\` on \`run\` sets it tighter.
+   60 minutes; \`timeout_seconds\` on \`run\` sets it tighter. A finished run
+   is kept 8 hours after it ends, and then a one-shot job is gone with it;
+   \`ttl_seconds\` on \`run\` keeps it for less.
 8. You can deploy; you cannot take anything away. Every deletion, every released
    address, and any \`set_deps\` that drops an edge the service currently holds
    answers \`approval_required\` and emails the account owner a button. Call it
@@ -170,6 +172,10 @@ and read as a crash loop while the meter ran.
    3600) to stop it sooner; the clock starts when the run gets a machine, so
    pulling the image uses some of it and waiting for a machine does not. Leave it
    out and the job keeps the timeout its last run had.
+6. Read the run within 8 hours of it ending. After that a one-shot job is
+   removed with its run, and a scheduled job loses that firing. Pass
+   \`ttl_seconds\` (1 to 28800) to clean up sooner; leave it out and the job
+   keeps the time to live it has.
 
 \`rollback\` on a job re-runs an older image under a new revision. Only ask for
 one if a second run is safe.

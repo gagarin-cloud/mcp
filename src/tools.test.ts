@@ -599,6 +599,30 @@ test('run refuses a timeout outside 1..3600 or not whole before any call', async
   }
 });
 
+test('run passes ttl_seconds through when given and refuses it outside 1..28800', async () => {
+  const kit = await connected(() => json({ name: 'migrate', kind: 'job', revision: 1 }));
+  try {
+    const base = { project: 'shop', service: 'migrate', image: 'reg/shop/migrate:v3' };
+    for (const bad of [0, 28801, 1.5, -1]) {
+      const refused = await kit.client
+        .callTool({ name: 'run', arguments: { ...base, ttl_seconds: bad } })
+        .then((r) => r.isError === true)
+        .catch(() => true);
+      assert.ok(refused, `ttl_seconds ${bad} should be refused`);
+    }
+    assert.equal(kit.seen.length, 0, 'a refused ttl must never reach the API');
+    await kit.client.callTool({ name: 'run', arguments: { ...base, ttl_seconds: 28800 } });
+    assert.equal((kit.seen[0]?.body as any).ttl_seconds, 28800);
+    await kit.client.callTool({ name: 'run', arguments: base });
+    assert.ok(
+      !('ttl_seconds' in (kit.seen[1]?.body as object)),
+      'absent must mean keep the current ttl, not send a value',
+    );
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 test('run passes schedule and time_zone through when given', async () => {
   const kit = await connected(() => json({ name: 'backup', kind: 'job', revision: 1 }));
   try {
