@@ -510,6 +510,11 @@ export function registerTools(server: McpServer, api: Api): void {
         'for a machine does not. Left out, a job keeps the timeout its last run had. Billed per ' +
         'minute, rounded up, from when the container starts: waiting for a machine and pulling ' +
         'the image are not billed.\n' +
+        'A finished run is kept for `ttl_seconds` — at most, and by default, 28800 (8 hours) — ' +
+        'counted from when it ended. Then a one-shot job is removed with its run, and `status` ' +
+        'no longer lists it; a scheduled job stays and only that firing goes — `status` still ' +
+        'reports how its last firing ended, marked `expired: true`, and `logs` still has what it ' +
+        'wrote. Left out, a job keeps the time to live it has.\n' +
         'With `schedule`, a job is **scheduled**: nothing runs now, and each firing is a run that ' +
         '`status` and `logs` report; a firing while the previous run is still going waits and starts when it ends. ' +
         'Running a scheduled job again without `schedule` keeps its schedule and changes what the ' +
@@ -556,6 +561,18 @@ export function registerTools(server: McpServer, api: Api): void {
               'default for a new job). Counted from when the run gets a machine, so pulling the image ' +
               'uses some of it and waiting for a machine does not. Absent keeps the timeout the job ' +
               'already has. Refused `invalid_timeout` outside the range.',
+          ),
+        ttl_seconds: z
+          .number()
+          .int()
+          .min(60)
+          .max(28800)
+          .optional()
+          .describe(
+            'keep a finished run this many seconds after it ends, 60 to 28800 (the 8-hour ceiling, ' +
+              'also the default for a new job). Then a one-shot job is removed along with its run; ' +
+              'a scheduled job keeps firing and each finished firing is removed on its own. Absent ' +
+              'keeps the time to live the job already has. Refused `invalid_ttl` outside the range.',
           ),
         schedule: z
           .string()
