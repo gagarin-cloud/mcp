@@ -22,7 +22,7 @@ import { registerTools } from './tools.js';
  * refusing. Everything else is on the tools themselves, where it is read at the
  * moment it matters, and the long form is `gagarin://guide`.
  *
- * Deliberately not a copy of the agent skill that ships inside the `gg` binary.
+ * Deliberately not a copy of the agent skill in gagarin-cloud/claude-plugin.
  * That document is about driving a CLI on a machine with source and docker on
  * it; this one is about driving an API. Two audiences, and a copy of the first
  * pasted here would be wrong in the places they differ and stale in the rest.
