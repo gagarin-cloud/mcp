@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "cloud.gagarin/gagarin",
   "title": "Gagarin Cloud",
-  "description": "Deploy and operate containers on Gagarin Cloud: services, databases, domains, logs, rollbacks.",
-  "version": "0.2.0",
+  "description": "Your agent ships the app. Alerts, logs, project memory and approval-gated deletes come with it.",
+  "version": "0.3.0",
   "websiteUrl": "https://gagarin.cloud",
   "repository": {
     "url": "https://github.com/gagarin-cloud/mcp",

@@ -1,13 +1,17 @@
 # mcp
 
-**mcp.gagarin.cloud** — gagarin's API, as tools an agent can call.
+**mcp.gagarin.cloud** — deploy with ease, maintain without fear.
+
+Add one URL to your agent and it can run your app at a live HTTPS address, give
+it Postgres, Qdrant, Valkey, a queue or a bucket, wire what may reach what, and
+roll back. Alerts, logs, backups and project memory come with it, and nothing is
+deleted without your approval by email. It is gagarin's API, as tools: 50 of
+them, every one annotated so a client knows which to ask you about first.
+Building and pushing an image needs docker and the source, so that one step is
+`gg ship` on the machine that has them; everything after it is here.
 
 ```
-npm install
-npm run build
-npm test                 # builds, then node --test over dist/
-npm start                # the HTTP server on :8080
-npm run stdio            # the same tools over a pipe
+https://mcp.gagarin.cloud/mcp
 ```
 
 The Model Context Protocol is how an agent finds and calls a tool it was not
@@ -69,6 +73,16 @@ with `error="invalid_token"`. One extra in-cluster call per request, and no
 cache — a remembered token is a stored token, and this server stores none. Any
 other failure there (the engine unreachable, a 5xx) is not a sign-in problem, so
 the request goes on and each tool reports it with the engine's own code.
+
+## Developing
+
+```
+npm install
+npm run build
+npm test                 # builds, then node --test over dist/
+npm start                # the HTTP server on :8080
+npm run stdio            # the same tools over a pipe
+```
 
 ## What is here
 

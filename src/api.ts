@@ -207,7 +207,7 @@ export class Api {
  * two places. api.test.ts asserts this equals the manifest, so the two
  * cannot drift without a test saying so.
  */
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 export function userAgent(): string {
   return `gagarin-mcp/${VERSION}`;
