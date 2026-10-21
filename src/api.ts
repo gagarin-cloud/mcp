@@ -61,7 +61,7 @@ export class ApiFailure extends Error {
 export function unauthenticated(): ApiFailure {
   return new ApiFailure(401, {
     code: 'unauthorized',
-    message: 'this MCP server was given no gagarin credential',
+    message: 'this MCP server was given no Gagarin credential',
     fix_hint:
       'remote: connect by URL and the client signs your human in over OAuth, or send a ' +
       'credential from `gg login` or `gg creds create` as `Authorization: Bearer <credential>`; ' +
@@ -177,7 +177,7 @@ export class Api {
           throw new ApiFailure(res.status, {
             code: 'unreadable_response',
             message: res.ok
-              ? 'gagarin answered in something this server cannot read; the request may well have gone through'
+              ? 'Gagarin answered in something this server cannot read; the request may well have gone through'
               : `gagarin answered ${res.status} in something this server cannot read`,
             fix_hint: 'read the state with `status` rather than assuming either way',
           });

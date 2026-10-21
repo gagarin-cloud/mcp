@@ -144,7 +144,7 @@ export function createApp(config: AppConfig): Express {
       .send(
         `gagarin — MCP server ${VERSION}\n\n` +
           `This endpoint speaks the Model Context Protocol over streamable HTTP at\n` +
-          `POST ${resource}. It is a translation of the gagarin API at\n` +
+          `POST ${resource}. It is a translation of the Gagarin API at\n` +
           `${issuer}; it holds no credential of its own, and every call carries yours.\n\n` +
           `Add it to an MCP client by URL:\n\n` +
           `  ${resource}\n\n` +
@@ -157,7 +157,7 @@ export function createApp(config: AppConfig): Express {
           `      "gagarin": {\n` +
           `        "type": "http",\n` +
           `        "url": "${resource}",\n` +
-          `        "headers": { "Authorization": "Bearer <your gagarin credential>" }\n` +
+          `        "headers": { "Authorization": "Bearer <your Gagarin credential>" }\n` +
           `      }\n` +
           `    }\n` +
           `  }\n\n` +
@@ -202,7 +202,7 @@ export function createApp(config: AppConfig): Express {
     if (!token) {
       refuse(
         res,
-        'this gagarin MCP server needs a credential: sign in over OAuth, or send one in the Authorization header',
+        'this Gagarin MCP server needs a credential: sign in over OAuth, or send one in the Authorization header',
       );
       return;
     }
@@ -247,7 +247,7 @@ export function createApp(config: AppConfig): Express {
         await api.call('/v1/whoami', { timeoutMs: 10_000 });
       } catch (err) {
         if (err instanceof ApiFailure && err.status === 401) {
-          refuse(res, 'this gagarin credential is expired or revoked: sign in again', 'invalid_token');
+          refuse(res, 'this Gagarin credential is expired or revoked: sign in again', 'invalid_token');
           return;
         }
       }

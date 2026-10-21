@@ -28,7 +28,7 @@ import { registerTools } from './tools.js';
  * pasted here would be wrong in the places they differ and stale in the rest.
  */
 const INSTRUCTIONS = `Gagarin runs container images on managed infrastructure. This server is the
-gagarin API, as tools. Call whoami first: it says which account you are acting
+Gagarin API, as tools. Call whoami first: it says which account you are acting
 as and whether the credential can deploy.
 
 Eight things that are true of every call here:
@@ -77,7 +77,7 @@ Errors are \`[code] message\` with a \`hint:\` line. Branch on the code, never o
 the prose.`;
 
 /** The long form, for a client that wants to read rather than be told. */
-const GUIDE = `# Driving gagarin over MCP
+const GUIDE = `# Driving Gagarin over MCP
 
 ${INSTRUCTIONS}
 
@@ -276,7 +276,7 @@ export function createServer(api: Api): McpServer {
   const server = new McpServer(
     {
       name: 'gagarin',
-      title: 'gagarin',
+      title: 'Gagarin',
       version: VERSION,
       websiteUrl: 'https://gagarin.cloud',
     },
@@ -287,9 +287,9 @@ export function createServer(api: Api): McpServer {
     'guide',
     'gagarin://guide',
     {
-      title: 'Driving gagarin over MCP',
+      title: 'Driving Gagarin over MCP',
       description:
-        'The whole of what an agent needs to operate gagarin through these tools: the rules, the ' +
+        'The whole of what an agent needs to operate Gagarin through these tools: the rules, the ' +
         'three things that still need the CLI, the shape of a first deployment, how project ' +
         'memory is used, and the `.gagarin.json` note that says which project a repository is.',
       mimeType: 'text/markdown',

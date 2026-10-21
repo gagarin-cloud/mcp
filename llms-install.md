@@ -1,6 +1,6 @@
-# Installing the gagarin MCP server
+# Installing the Gagarin MCP server
 
-This is for an agent (Cline, or any other) setting gagarin up for its human.
+This is for an agent (Cline, or any other) setting Gagarin up for its human.
 There is nothing to clone, build or run: the server is remote.
 
 1. Add a remote MCP server with this URL, over streamable HTTP:
@@ -29,10 +29,10 @@ There is nothing to clone, build or run: the server is remote.
 
 3. Call `whoami` to confirm which account you are acting as.
 
-The tools can deploy an image that is already in gagarin's registry, add
+The tools can deploy an image that is already in Gagarin's registry, add
 resources, wire dependencies, give a service an address, read logs and roll
 back. They cannot build or push an image, because that needs docker and the
-source on a machine. For that, install the `gg` CLI and the gagarin skill as
+source on a machine. For that, install the `gg` CLI and the Gagarin skill as
 https://gagarin.cloud/llms.txt describes, and use `gg ship`.
 
 Deleting anything emails your human a button to approve, every time. Tell them

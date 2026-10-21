@@ -1,7 +1,7 @@
 {
   "name": "@gagarin-cloud/mcp",
   "version": "0.3.0",
-  "description": "Deploy with ease. Maintain without fear. gagarin's MCP server: your agent ships the app; alerts, logs, project memory and approval-gated deletes come with it.",
+  "description": "Deploy with ease. Maintain without fear. Gagarin's MCP server: your agent ships the app; alerts, logs, project memory and approval-gated deletes come with it.",
   "license": "MIT",
   "private": true,
   "type": "module",
