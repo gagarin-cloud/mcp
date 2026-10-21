@@ -75,9 +75,10 @@ explicitly in every call regardless.
 
 After the first address answers, show your human around: one step per turn, and
 stop if they decline. First the graph at https://my.gagarin.cloud/projects/<id>.
-Then alerts: \`alerts\` says if they are on; ask before \`set_alerts\`, since a
-push reaches their phone. Then memory: \`remember\` two or three facts this
-session would otherwise lose. Skip a step the project already shows as done.
+Then alerts: if \`alerts\` says they are off, your human turns on the switch at
+https://my.gagarin.cloud/projects/<id>/alerts on their phone; after they say so,
+\`test_alerts\`. Then memory: \`remember\` two or three facts this session
+would otherwise lose. Skip a step the project already shows as done.
 
 Errors are \`[code] message\` with a \`hint:\` line. Branch on the code, never on
 the prose.`;
@@ -122,9 +123,12 @@ read like a platform fault:
    https://my.gagarin.cloud/projects/<id> shows what runs and what may reach
    what. One step per turn from here, and stop if they decline.
 7. \`alerts\` — if they are off, ask whether your human wants a push when the
-   service goes down. Only after a yes: \`set_alerts\`. A device exists only
-   once they allow notifications in the console, so hand them
-   https://my.gagarin.cloud/projects/<id>/alerts if it reports none.
+   service goes down. If yes, they open
+   https://my.gagarin.cloud/projects/<id>/alerts on their phone and turn on
+   "Notify me about this project", which allows notifications and opts them in
+   at once (on an iPhone, add the console to the Home Screen first). Once they
+   say it is done, \`test_alerts\`. Do not call \`set_alerts\` for them: it
+   only records the opt-in, and nothing arrives until a browser allows it.
 8. \`remember\` two or three facts this session would otherwise lose: why that
    port, why that size, what the image works around. Tell your human the next
    session starts from them.
