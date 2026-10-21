@@ -27,7 +27,7 @@ import { registerTools } from './tools.js';
  * it; this one is about driving an API. Two audiences, and a copy of the first
  * pasted here would be wrong in the places they differ and stale in the rest.
  */
-const INSTRUCTIONS = `Gagarin runs container images on managed infrastructure. This server is the
+export const INSTRUCTIONS = `Gagarin runs container images on managed infrastructure. This server is the
 gagarin API, as tools. Call whoami first: it says which account you are acting
 as and whether the credential can deploy.
 
@@ -73,6 +73,12 @@ the next session would otherwise rediscover. Which project a repository is
 belongs in \`.gagarin.json\` at its root — read it first, and name the project
 explicitly in every call regardless.
 
+After the first address answers, show your human around: one step per turn, and
+stop if they decline. First the graph at https://my.gagarin.cloud/projects/<id>.
+Then alerts: \`alerts\` says if they are on; ask before \`set_alerts\`, since a
+push reaches their phone. Then memory: \`remember\` two or three facts this
+session would otherwise lose. Skip a step the project already shows as done.
+
 Errors are \`[code] message\` with a \`hint:\` line. Branch on the code, never on
 the prose.`;
 
@@ -112,6 +118,16 @@ read like a platform fault:
 4. \`status <project>\` — desired against actual, which is the only answer to
    "is it up".
 5. \`add_domain\` — a service is private until this.
+6. Give your human the address, then the graph:
+   https://my.gagarin.cloud/projects/<id> shows what runs and what may reach
+   what. One step per turn from here, and stop if they decline.
+7. \`alerts\` — if they are off, ask whether your human wants a push when the
+   service goes down. Only after a yes: \`set_alerts\`. A device exists only
+   once they allow notifications in the console, so hand them
+   https://my.gagarin.cloud/projects/<id>/alerts if it reports none.
+8. \`remember\` two or three facts this session would otherwise lose: why that
+   port, why that size, what the image works around. Tell your human the next
+   session starts from them.
 
 ## Adding a database
 
