@@ -276,10 +276,11 @@ wrong:
   collided with. Update or supersede one of those; do not force.
 - A deploy refused with \`insufficient_scope\`: the credential is a browser
   session or a viewer role. \`whoami\` and \`projects\` say which.
-- Your human wants to hear about outages without asking you: \`set_alerts\`
-  opts them in, and they allow notifications at
-  my.gagarin.cloud/projects/PROJECT/alerts in a browser — you cannot — then
-  \`test_alerts\`. \`alerts\` shows their devices and recent notifications.
+- Your human wants to hear about outages without asking you: they open
+  my.gagarin.cloud/projects/PROJECT/alerts on the phone that should buzz and
+  flip the switch, which allows notifications and opts them in at once — you
+  cannot do the first half. Then \`test_alerts\`. \`alerts\` shows their
+  devices and recent notifications.
 - Everything refused with \`suspended\` or a deploy refused for money:
   \`billing\`. A runway measured in hours is worth telling your human about
   before it becomes an outage.

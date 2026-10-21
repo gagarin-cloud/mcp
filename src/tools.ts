@@ -1143,7 +1143,10 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Set project alerts',
       description:
-        "Opts the caller in to a project's alerts. It is per member: it says nothing about anyone " +
+        "Records the caller's opt-in to a project's alerts, and nothing more. Alerts are normally " +
+        'turned on by your human with the switch at https://my.gagarin.cloud/projects/PROJECT/alerts, ' +
+        'opened on the phone that should buzz: it allows notifications there and opts them in at ' +
+        'once. Use this only when they already have a device. It is per member: it says nothing about anyone ' +
         'else. Once on, the engine notifies when a service has been down for three minutes, when a ' +
         'deploy will not start, and when a container crashes and restarts — once when it starts ' +
         'and once when it ends. Notifications arrive in the my.gagarin.cloud console, installed ' +
@@ -1163,8 +1166,8 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'Send a test alert',
       description:
         "Sends one notification now to the caller's own devices, and answers how many it reached " +
-        '(`sent`). Use it after `set_alerts`, once your human has allowed notifications in a ' +
-        'browser, so they see the channel work before it matters. Refused `alerts_off` when the ' +
+        '(`sent`). Use it once your human has turned alerts on in the console, so they see the ' +
+        'channel work before it matters. Refused `alerts_off` when the ' +
         'caller has not opted in, and `no_devices` when they have no device yet.',
       inputSchema: { project },
       annotations: writes('Send a test alert', { idempotent: false }),
@@ -1177,8 +1180,8 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Turn off project alerts',
       description:
-        "Opts the caller out of a project's alerts; other members' are untouched. `set_alerts` turns " +
-        'them back on.',
+        "Opts the caller out of a project's alerts; other members' are untouched. The console's alerts " +
+        'switch turns them back on.',
       inputSchema: { project },
       annotations: writes('Turn off project alerts', { idempotent: true }),
     },
