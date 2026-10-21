@@ -1,3 +1,5 @@
 # Prose is written by hand; Prettier pads its tables to the widest cell.
 *.md
 dist/
+# Vendored verbatim from the registry; re-fetched, never reformatted.
+schema/

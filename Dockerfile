@@ -16,6 +16,11 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
+# What server-json.test.ts checks: the registry entry, the schema it is
+# checked against, and the README that states the tool count. The build stage
+# only; none of it ships.
+COPY server.json README.md ./
+COPY schema ./schema
 # Built and then tested, and the tests removed from what ships. They are worth
 # running here rather than only in CI — this is the one place the image and the
 # code it was built from are provably the same thing.
