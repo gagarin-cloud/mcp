@@ -296,7 +296,7 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Show current account',
       description:
-        'Which gagarin account this server is acting as, what the credential may do, and the ' +
+        'Which Gagarin account this server is acting as, what the credential may do, and the ' +
         'registry and base domain to build addresses from. Run this first in any session: it is ' +
         'the one call that distinguishes "no credential" from "a credential that cannot deploy".',
       inputSchema: {},
@@ -404,8 +404,8 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Deploy service',
       description:
-        "Declares what a service should be. **The image must already be in gagarin's own " +
-        'registry** under this project — gagarin runs nothing else — and this server cannot put ' +
+        "Declares what a service should be. **The image must already be in Gagarin's own " +
+        'registry** under this project — Gagarin runs nothing else — and this server cannot put ' +
         'it there: building and pushing need docker and the source, so they happen on a machine, ' +
         'with `gg ship` (build, push and deploy in one) or `gg build` + `gg push` in CI. Use this ' +
         'tool to deploy an image that exists: a new tag CI pushed, or a restatement. For an image ' +
@@ -431,7 +431,7 @@ export function registerTools(server: McpServer, api: Api): void {
         image: z
           .string()
           .describe(
-            "full reference in gagarin's registry, e.g. registry.gagarin.cloud/<project-id>/web:v3. " +
+            "full reference in Gagarin's registry, e.g. registry.gagarin.cloud/<project-id>/web:v3. " +
               '`whoami` gives the registry host and `projects` the id.',
           ),
         port: z.number().int().describe('the TCP port the container listens on'),
@@ -497,7 +497,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'one-off script. Not a service. It has no port and no volume, nothing can be told to ' +
         'reach it, and it is never restarted by the platform: a script that exits non-zero is ' +
         'reported as having failed, once, with its code.\n' +
-        "Like `deploy`, the image must already be in gagarin's registry and this server cannot " +
+        "Like `deploy`, the image must already be in Gagarin's registry and this server cannot " +
         'put it there. **And like `deploy`, this returns without waiting.** It answers a ' +
         "`revision`, which is the run's name; `status` reports that run's phase and exit code, " +
         'and `logs` reads it. There is no tool here that blocks until a run finishes — `gg run` ' +
@@ -528,7 +528,7 @@ export function registerTools(server: McpServer, api: Api): void {
         image: z
           .string()
           .describe(
-            "full reference in gagarin's registry, e.g. registry.gagarin.cloud/<project-id>/migrate:v3",
+            "full reference in Gagarin's registry, e.g. registry.gagarin.cloud/<project-id>/migrate:v3",
           ),
         env: z
           .record(z.string())
@@ -680,7 +680,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'config change, roll back the external resource holding it, not its dependents**: name ' +
         'the resource here and every service declaring it is restarted with the restored values. ' +
         "An external can be rolled back because its values are the user's; a postgres, qdrant, " +
-        'valkey, iggy or s3 cannot, because gagarin mints those and there is no earlier value of theirs to ' +
+        'valkey, iggy or s3 cannot, because Gagarin mints those and there is no earlier value of theirs to ' +
         'return to.',
       inputSchema: {
         project,
@@ -710,7 +710,7 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Add domain',
       description:
-        "With no domain, hands out gagarin's own generated address and the certificate is already " +
+        "With no domain, hands out Gagarin's own generated address and the certificate is already " +
         'held. With one, claims that name — and the answer says what DNS record the owner has to ' +
         'add before it can be issued. Both are idempotent; restating one repairs its ingress. A ' +
         'service is private until this call and a deploy can neither give an address nor take one ' +
@@ -741,7 +741,7 @@ export function registerTools(server: McpServer, api: Api): void {
       description:
         'With a domain, releases that custom name. With none, takes the service off the internet ' +
         'entirely — which is refused while a custom name still points at it, since that would ' +
-        "leave somebody's DNS aimed at a host gagarin no longer serves. Releasing a custom name " +
+        "leave somebody's DNS aimed at a host Gagarin no longer serves. Releasing a custom name " +
         'cannot be undone if somebody else claims it in the meantime. ' +
         'Expect `approval_required`: the call completes only when the account owner clicks the ' +
         'button emailed to them, so explain the pause to your user instead of retrying.',
@@ -827,7 +827,7 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Add resource',
       description:
-        'Something gagarin runs on your behalf — a database, a cache, a vector store — or an ' +
+        'Something Gagarin runs on your behalf — a database, a cache, a vector store — or an ' +
         '`external`, a row that runs nothing and only publishes values. You name it and say ' +
         'how big; the platform decides the rest. If a type exists, use it rather than deploying ' +
         'your own; the refusal from an unknown type names the ones there are. Nothing reaches it ' +
@@ -865,7 +865,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .optional()
           .describe(
             'the values an `external` publishes to whatever declares it. Refused for every other ' +
-              "type, whose credentials are gagarin's to mint rather than yours to choose.",
+              "type, whose credentials are Gagarin's to mint rather than yours to choose.",
           ),
       },
       annotations: writes('Add resource', { idempotent: true }),
@@ -972,7 +972,7 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'Rotate resource credentials',
       description:
         'New credentials, and everything holding them rolls to pick them up. For an `external` ' +
-        "the new values are yours to supply and required; for everything else they are gagarin's " +
+        "the new values are yours to supply and required; for everything else they are Gagarin's " +
         'to mint and supplying them is refused. An `external` usually holds several values, and ' +
         'there are two ways to change them: `set`/`unset` change the keys you name and leave the ' +
         'rest exactly as they are, while `env` says the bundle is now precisely this and drops ' +
@@ -1071,7 +1071,7 @@ export function registerTools(server: McpServer, api: Api): void {
       description:
         'Restores a backup into a **new** resource and never overwrites anything — which is why ' +
         'it needs no approval and cannot lose data.\n' +
-        "Name a resource that does not exist yet: gagarin creates it as the backup's own type " +
+        "Name a resource that does not exist yet: Gagarin creates it as the backup's own type " +
         '(a postgres for a postgres dump, a qdrant for a qdrant backup, an iggy for an iggy backup — you never choose) and ' +
         'answers at once. The data is poured in afterwards by the platform, usually within a ' +
         'minute or two, longer for a large backup. `source` is the resource whose newest backup ' +
@@ -1085,7 +1085,7 @@ export function registerTools(server: McpServer, api: Api): void {
         project,
         resource: z
           .string()
-          .describe('the new name to restore into. gagarin creates it; do not `add_resource` first.'),
+          .describe('the new name to restore into. Gagarin creates it; do not `add_resource` first.'),
         source: z
           .string()
           .optional()
@@ -1143,7 +1143,10 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Set project alerts',
       description:
-        "Opts the caller in to a project's alerts. It is per member: it says nothing about anyone " +
+        "Records the caller's opt-in to a project's alerts, and nothing more. Alerts are normally " +
+        'turned on by your human with the switch at https://my.gagarin.cloud/projects/PROJECT/alerts, ' +
+        'opened on the phone that should buzz: it allows notifications there and opts them in at ' +
+        'once. Use this only when they already have a device. It is per member: it says nothing about anyone ' +
         'else. Once on, the engine notifies when a service has been down for three minutes, when a ' +
         'deploy will not start, and when a container crashes and restarts — once when it starts ' +
         'and once when it ends. Notifications arrive in the my.gagarin.cloud console, installed ' +
@@ -1163,8 +1166,8 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'Send a test alert',
       description:
         "Sends one notification now to the caller's own devices, and answers how many it reached " +
-        '(`sent`). Use it after `set_alerts`, once your human has allowed notifications in a ' +
-        'browser, so they see the channel work before it matters. Refused `alerts_off` when the ' +
+        '(`sent`). Use it once your human has turned alerts on in the console, so they see the ' +
+        'channel work before it matters. Refused `alerts_off` when the ' +
         'caller has not opted in, and `no_devices` when they have no device yet.',
       inputSchema: { project },
       annotations: writes('Send a test alert', { idempotent: false }),
@@ -1177,8 +1180,8 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Turn off project alerts',
       description:
-        "Opts the caller out of a project's alerts; other members' are untouched. `set_alerts` turns " +
-        'them back on.',
+        "Opts the caller out of a project's alerts; other members' are untouched. The console's alerts " +
+        'switch turns them back on.',
       inputSchema: { project },
       annotations: writes('Turn off project alerts', { idempotent: true }),
     },
