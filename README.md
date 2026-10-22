@@ -5,7 +5,7 @@
 Add one URL to your agent and it can run your app at a live HTTPS address, give
 it Postgres, Qdrant, Valkey, a queue or a bucket, wire what may reach what, and
 roll back. Alerts, logs, backups and project memory come with it, and nothing is
-deleted without your approval by email. It is gagarin's API, as tools: 50 of
+deleted without your approval by email. It is Gagarin's API, as tools: 50 of
 them, every one annotated so a client knows which to ask you about first.
 Building and pushing an image needs docker and the source, so that one step is
 `gg ship` on the machine that has them; everything after it is here.
@@ -15,7 +15,7 @@ https://mcp.gagarin.cloud/mcp
 ```
 
 The Model Context Protocol is how an agent finds and calls a tool it was not
-built with. This is gagarin's, and it exists so that adding gagarin to a coding
+built with. This is Gagarin's, and it exists so that adding Gagarin to a coding
 agent is a URL rather than an install — the one artefact that makes the platform
 *installable* rather than merely documented.
 
@@ -62,7 +62,7 @@ over OAuth, or a machine that should not: a credential from `gg login` or
 **Local, over stdio.** `npm run stdio` from a clone runs the same tools over a
 pipe, reading the file `gg login` wrote, or `GAGARIN_TOKEN` if it is set. It is
 here to develop against, and is deliberately not published to npm: the point of
-this server is that adding gagarin to an agent is a URL and not an install, and
+this server is that adding Gagarin to an agent is a URL and not an install, and
 a package on somebody's laptop is a second copy of `src/tools.ts` that goes
 stale the day a tool changes.
 
@@ -88,7 +88,7 @@ npm run stdio            # the same tools over a pipe
 
 | path | what it is |
 |---|---|
-| `src/api.ts` | the whole of this server's contact with gagarin: one request, one error envelope |
+| `src/api.ts` | the whole of this server's contact with Gagarin: one request, one error envelope |
 | `src/tools.ts` | every tool — each one a path, a shape, and the rule a caller needs before using it |
 | `src/server.ts` | what a client is told on connect, and the `gagarin://guide` resource — including how memory is used and the `.gagarin.json` note that says which project a repository is |
 | `src/app.ts` | mcp.gagarin.cloud: stateless streamable HTTP, one server per request, and the OAuth protected-resource metadata |
@@ -140,7 +140,7 @@ Two consequences worth stating, because both look like omissions:
   precisely so a terminal and a dashboard cannot describe the same row
   differently. A third renderer here would be a third opinion to keep in step.
 - **Errors are `[code] message` with a `hint:` line**, which is what `gg` prints.
-  One format, so an agent that has read the gagarin skill recognises what comes
+  One format, so an agent that has read the Gagarin skill recognises what comes
   back here without being taught a second one. When the engine sends more than
   the envelope — a `memory_duplicate` carries the near-duplicates — that is
   appended after the hint rather than dropped.
@@ -152,7 +152,7 @@ read like platform faults:
 
 - **Build and push an image.** `gg ship` — build, push and deploy fused — shells
   out to docker where the source is. `deploy` here runs an image that is
-  *already* in gagarin's registry: a tag CI pushed, or a restatement. Getting one
+  *already* in Gagarin's registry: a tag CI pushed, or a restatement. Getting one
   there is the CLI's job.
 - **Open a tunnel.** `gg connect` binds a local port.
 - **Wait for a job to finish.** `run` submits and returns a revision, like every

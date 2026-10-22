@@ -39,6 +39,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('gagarin mcp: could not start:', err);
+  console.error('Gagarin mcp: could not start:', err);
   process.exit(1);
 });

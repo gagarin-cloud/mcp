@@ -285,7 +285,7 @@ wrong:
   \`billing\`. A runway measured in hours is worth telling your human about
   before it becomes an outage.
 
-## Where else gagarin is
+## Where else Gagarin is
 
 - The API this wraps: https://api.gagarin.cloud
 - The CLI and its agent skill: https://github.com/gagarin-cloud/gg
@@ -297,7 +297,7 @@ export function createServer(api: Api): McpServer {
   const server = new McpServer(
     {
       name: 'gagarin',
-      title: 'gagarin',
+      title: 'Gagarin',
       version: VERSION,
       websiteUrl: 'https://gagarin.cloud',
     },
