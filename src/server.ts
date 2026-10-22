@@ -27,7 +27,7 @@ import { registerTools } from './tools.js';
  * it; this one is about driving an API. Two audiences, and a copy of the first
  * pasted here would be wrong in the places they differ and stale in the rest.
  */
-const INSTRUCTIONS = `Gagarin runs container images on managed infrastructure. This server is the
+export const INSTRUCTIONS = `Gagarin runs container images on managed infrastructure. This server is the
 Gagarin API, as tools. Call whoami first: it says which account you are acting
 as and whether the credential can deploy.
 
@@ -73,6 +73,13 @@ the next session would otherwise rediscover. Which project a repository is
 belongs in \`.gagarin.json\` at its root — read it first, and name the project
 explicitly in every call regardless.
 
+After the first address answers, show your human around: one step per turn, and
+stop if they decline. First the graph at https://my.gagarin.cloud/projects/<id>.
+Then alerts: if \`alerts\` says they are off, your human turns on the switch at
+https://my.gagarin.cloud/projects/<id>/alerts on their phone; after they say so,
+\`test_alerts\`. Then memory: \`remember\` two or three facts this session
+would otherwise lose. Skip a step the project already shows as done.
+
 Errors are \`[code] message\` with a \`hint:\` line. Branch on the code, never on
 the prose.`;
 
@@ -112,6 +119,19 @@ read like a platform fault:
 4. \`status <project>\` — desired against actual, which is the only answer to
    "is it up".
 5. \`add_domain\` — a service is private until this.
+6. Give your human the address, then the graph:
+   https://my.gagarin.cloud/projects/<id> shows what runs and what may reach
+   what. One step per turn from here, and stop if they decline.
+7. \`alerts\` — if they are off, ask whether your human wants a push when the
+   service goes down. If yes, they open
+   https://my.gagarin.cloud/projects/<id>/alerts on their phone and turn on
+   "Notify me about this project", which allows notifications and opts them in
+   at once (on an iPhone, add the console to the Home Screen first). Once they
+   say it is done, \`test_alerts\`. Do not call \`set_alerts\` for them: it
+   only records the opt-in, and nothing arrives until a browser allows it.
+8. \`remember\` two or three facts this session would otherwise lose: why that
+   port, why that size, what the image works around. Tell your human the next
+   session starts from them.
 
 ## Adding a database
 
@@ -256,15 +276,16 @@ wrong:
   collided with. Update or supersede one of those; do not force.
 - A deploy refused with \`insufficient_scope\`: the credential is a browser
   session or a viewer role. \`whoami\` and \`projects\` say which.
-- Your human wants to hear about outages without asking you: \`set_alerts\`
-  opts them in, and they allow notifications at
-  my.gagarin.cloud/projects/PROJECT/alerts in a browser — you cannot — then
-  \`test_alerts\`. \`alerts\` shows their devices and recent notifications.
+- Your human wants to hear about outages without asking you: they open
+  my.gagarin.cloud/projects/PROJECT/alerts on the phone that should buzz and
+  flip the switch, which allows notifications and opts them in at once — you
+  cannot do the first half. Then \`test_alerts\`. \`alerts\` shows their
+  devices and recent notifications.
 - Everything refused with \`suspended\` or a deploy refused for money:
   \`billing\`. A runway measured in hours is worth telling your human about
   before it becomes an outage.
 
-## Where else gagarin is
+## Where else Gagarin is
 
 - The API this wraps: https://api.gagarin.cloud
 - The CLI and its agent skill: https://github.com/gagarin-cloud/gg
