@@ -135,7 +135,8 @@ read like a platform fault:
 
 ## Adding a database
 
-1. \`add_resource\` with type \`postgres\` (or \`valkey\`, or \`qdrant\`; \`iggy\` for a message stream).
+1. \`add_resource\` with type \`postgres\` (or \`valkey\`, or \`qdrant\`; \`iggy\` for a message stream, \`rabbitmq\` for a
+   message broker).
 2. \`set_deps\` on the service, listing the resource. That opens the route and
    hands over the connection variables; the service rolls on its own. There is
    no second call and nothing to copy by hand — \`resource_secrets\` exists for
@@ -154,6 +155,30 @@ read like a platform fault:
    created with persisted durability (\`--durability persisted\` in Iggy's own CLI
    and SDKs) is restored complete, and the newest messages of any other topic may
    be missing. Say so before the user puts anything in one they need back.
+
+## Adding a message broker
+
+1. \`add_resource\` with type \`rabbitmq\`. It is a private RabbitMQ 4.4.0 broker
+   with the management plugin and one volume (\`/var/lib/rabbitmq\`, 10 GB by
+   default), reached on AMQP 0-9-1 at 5672 and the management UI and HTTP API
+   at 15672. Pick it over \`iggy\` when work is handed to workers through
+   queues and exchanges (a job queue, Celery, routing, acknowledgements);
+   \`iggy\` is a log that consumers read at offsets and can replay.
+2. \`set_deps\` on the worker (or any service that publishes or consumes),
+   listing the resource. A resource called \`broker\` hands over \`BROKER_URL\`
+   (\`amqp://app:<password>@broker:5672/%2F\`), \`BROKER_HOST\`, \`BROKER_PORT\`,
+   \`BROKER_HTTP_PORT\` (15672), \`BROKER_USER\` (\`app\`) and \`BROKER_PASSWORD\`.
+   Gagarin mints the credentials; you cannot supply env. Pass \`BROKER_URL\`
+   straight to the client library (pika, amqplib, amqp091-go, Celery's
+   \`broker_url\`).
+3. **It is not backed up.** \`backup_resource\` is refused for it
+   (\`backup_unsupported\`) and there is nothing to \`restore_resource\`. The
+   application declares its own queues and exchanges when it starts, so a fresh
+   broker can be rebuilt from code; tell the user to declare queues durable and
+   publish persistent messages for anything that must survive a restart. Those
+   survive restarts, not the loss of the resource. \`rotate_resource\` changes
+   the password: the server is told first, then the pods restart, and nothing
+   in the queues is lost.
 
 ## Adding object storage
 
