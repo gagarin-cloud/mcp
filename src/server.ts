@@ -95,7 +95,9 @@ read like a platform fault:
 
 - **Building and pushing an image.** \`gg ship\` (build, push and deploy fused),
   \`gg build\`, \`gg push\` and \`gg registry copy\` shell out to docker where the
-  source is. Install the CLI — \`brew install gagarin-cloud/tap/gg\`, or
+  source is. Install the CLI — \`curl -fsSL https://gagarin.cloud/install.sh | sh\`
+  (macOS, Linux) or \`irm https://gagarin.cloud/install.ps1 | iex\` (Windows
+  PowerShell), or \`brew install --cask gagarin-cloud/tap/gg\`, or
   \`go install github.com/gagarin-cloud/gg@latest\` — and run it there. Then
   \`deploy\` here, or let \`gg ship\` do all three.
 - **Opening a tunnel to a resource.** \`gg connect\` binds a local port.
