@@ -41,6 +41,7 @@ export const TOOLS_SNAPSHOT: Readonly<Record<string, SnapshotRow>> = {
   memory_get: ['Read memories in full', true, false, true, false],
   memory_link: ['Link memories', false, false, true, false],
   memory_related: ['Follow memory links', true, false, true, false],
+  memory_review: ['Review project memory', true, false, true, false],
   memory_search: ['Search project memory', true, false, true, false],
   memory_unlink: ['Unlink memories', false, false, true, false],
   memory_update: ['Update a memory', false, false, true, false],
