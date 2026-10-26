@@ -680,7 +680,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'config change, roll back the external resource holding it, not its dependents**: name ' +
         'the resource here and every service declaring it is restarted with the restored values. ' +
         "An external can be rolled back because its values are the user's; a postgres, qdrant, " +
-        'valkey, iggy or s3 cannot, because Gagarin mints those and there is no earlier value of theirs to ' +
+        'valkey, iggy, rabbitmq or s3 cannot, because Gagarin mints those and there is no earlier value of theirs to ' +
         'return to.',
       inputSchema: {
         project,
@@ -846,11 +846,16 @@ export function registerTools(server: McpServer, api: Api): void {
         'and if that setting currently lives in a deploy env, say so and offer to move it. ' +
         'Keys are published under the resource name — `config` holding LOG_LEVEL publishes ' +
         'CONFIG_LOG_LEVEL — so name the resource for how the application wants to read it. ' +
-        'An `s3` bucket is private until `publish_resource` says otherwise.',
+        'An `s3` bucket is private until `publish_resource` says otherwise. A `rabbitmq` is a private ' +
+        'message broker (queues and exchanges over AMQP 0-9-1, with its management UI on 15672); ' +
+        'it is **not backed up**, so the application should declare its own queues and publish ' +
+        'persistent messages to durable queues for anything that must survive a restart.',
       inputSchema: {
         project,
         resource,
-        type: z.string().describe('what to provision, e.g. postgres, valkey, qdrant, iggy, s3 or external'),
+        type: z
+          .string()
+          .describe('what to provision, e.g. postgres, valkey, qdrant, iggy, rabbitmq, s3 or external'),
         size: z
           .string()
           .optional()
@@ -1037,7 +1042,8 @@ export function registerTools(server: McpServer, api: Api): void {
       description:
         'Every stored backup of a resource, newest last. Keys are UTC timestamps, so they sort ' +
         'chronologically, and one is what `restore_resource` takes for an exact point. Each says ' +
-        'the type that wrote it, and a destroyed resource still lists the backups it left.',
+        'the type that wrote it, and a destroyed resource still lists the backups it left. A ' +
+        '`rabbitmq` is not backed up and lists none.',
       inputSchema: { project, resource },
       annotations: reads('List backups'),
     },
@@ -1051,7 +1057,7 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'Back up resource',
       description:
         'A snapshot at this moment, on top of the nightly ones. Rate limited, so do not call it ' +
-        'in a loop.',
+        'in a loop. Refused `backup_unsupported` for a `rabbitmq`, which is not backed up.',
       inputSchema: { project, resource },
       annotations: writes('Back up resource', { idempotent: false }),
     },
@@ -1072,7 +1078,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'Restores a backup into a **new** resource and never overwrites anything — which is why ' +
         'it needs no approval and cannot lose data.\n' +
         "Name a resource that does not exist yet: Gagarin creates it as the backup's own type " +
-        '(a postgres for a postgres dump, a qdrant for a qdrant backup, an iggy for an iggy backup — you never choose) and ' +
+        '(a postgres for a postgres dump, a qdrant for a qdrant backup, an iggy for an iggy backup — you never choose; a rabbitmq has no backups to restore) and ' +
         'answers at once. The data is poured in afterwards by the platform, usually within a ' +
         'minute or two, longer for a large backup. `source` is the resource whose newest backup ' +
         'to take — it may already be destroyed, which is the case this exists for — or `backup` ' +
