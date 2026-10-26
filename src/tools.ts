@@ -541,7 +541,13 @@ export function registerTools(server: McpServer, api: Api): void {
         size: z
           .string()
           .optional()
-          .describe('CPU and memory envelope. A job is billed for the time it runs, at this size.'),
+          .describe(
+            'CPU and memory envelope. A job is billed for the time it runs, at this size. `g` is a ' +
+              'GPU size, for runs only: one L4 GPU (24 GB) with 6 vCPU and 40 GiB, all of it ' +
+              'dedicated to the run, at $3 an hour, billed by the minute like every size. A `g` run ' +
+              'sits pending three to six minutes while the GPU machine boots. `deploy` and ' +
+              'resources refuse it `invalid_size`.',
+          ),
         deps: z
           .array(z.string())
           .optional()

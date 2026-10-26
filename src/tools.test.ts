@@ -545,6 +545,33 @@ test('a run is a deploy with a kind, and answers the revision naming it', async 
   }
 });
 
+test('run passes size g through as a string and describes it as a GPU size for runs only', async () => {
+  const kit = await connected(() => json({ name: 'train', kind: 'job', revision: 1 }));
+  try {
+    await kit.client.callTool({
+      name: 'run',
+      arguments: { project: 'shop', service: 'train', image: 'reg/shop/train:v1', size: 'g' },
+    });
+    assert.equal((kit.seen[0]?.body as any).size, 'g');
+    assert.equal((kit.seen[0]?.body as any).kind, 'job');
+
+    const tools = (await kit.client.listTools()).tools;
+    const size = (name: string) =>
+      String(((tools.find((t) => t.name === name)?.inputSchema as any).properties.size ?? {}).description);
+    assert.match(size('run'), /`g` is a GPU size, for runs only/);
+    assert.match(size('run'), /\$3 an hour, billed by the minute like every size/);
+    // No start-up charge: waiting for a machine is not billed, for g as for every size.
+    assert.doesNotMatch(size('run'), /start-up/);
+    assert.doesNotMatch(String(tools.find((t) => t.name === 'run')?.description), /start-up/);
+    assert.match(size('run'), /three to six minutes/);
+    // The engine owns the list, so the field stays a string; and deploy says nothing of g.
+    assert.equal((tools.find((t) => t.name === 'run')?.inputSchema as any).properties.size.type, 'string');
+    assert.doesNotMatch(size('deploy'), /GPU|`g`/);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 test('a deploy is never a job', async () => {
   const kit = await connected(() => json({}));
   try {
