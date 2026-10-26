@@ -559,8 +559,10 @@ test('run passes size g through as a string and describes it as a GPU size for r
     const size = (name: string) =>
       String(((tools.find((t) => t.name === name)?.inputSchema as any).properties.size ?? {}).description);
     assert.match(size('run'), /`g` is a GPU size, for runs only/);
-    assert.match(size('run'), /\$2\.85 an hour/);
-    assert.match(size('run'), /15-minute start-up charge/);
+    assert.match(size('run'), /\$3 an hour, billed by the minute like every size/);
+    // No start-up charge: waiting for a machine is not billed, for g as for every size.
+    assert.doesNotMatch(size('run'), /start-up/);
+    assert.doesNotMatch(String(tools.find((t) => t.name === 'run')?.description), /start-up/);
     assert.match(size('run'), /three to six minutes/);
     // The engine owns the list, so the field stays a string; and deploy says nothing of g.
     assert.equal((tools.find((t) => t.name === 'run')?.inputSchema as any).properties.size.type, 'string');

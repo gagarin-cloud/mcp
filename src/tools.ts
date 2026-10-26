@@ -509,7 +509,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'counted from when the run gets a machine, so pulling the image uses some of it and waiting ' +
         'for a machine does not. Left out, a job keeps the timeout its last run had. Billed per ' +
         'minute, rounded up, from when the container starts: waiting for a machine and pulling ' +
-        'the image are not billed (size `g` is the exception: see `size`).\n' +
+        'the image are not billed.\n' +
         'A finished run is kept for `ttl_seconds` — at most, and by default, 28800 (8 hours) — ' +
         'counted from when it ended. Then a one-shot job is removed with its run, and `status` ' +
         'no longer lists it; a scheduled job stays and only that firing goes — `status` still ' +
@@ -544,9 +544,9 @@ export function registerTools(server: McpServer, api: Api): void {
           .describe(
             'CPU and memory envelope. A job is billed for the time it runs, at this size. `g` is a ' +
               'GPU size, for runs only: one L4 GPU (24 GB) with 6 vCPU and 40 GiB, all of it ' +
-              'dedicated to the run, at $2.85 an hour, and every `g` run is billed its length plus a ' +
-              '15-minute start-up charge. A `g` run sits pending three to six minutes while the GPU ' +
-              'machine boots. `deploy` and resources refuse it `invalid_size`.',
+              'dedicated to the run, at $3 an hour, billed by the minute like every size. A `g` run ' +
+              'sits pending three to six minutes while the GPU machine boots. `deploy` and ' +
+              'resources refuse it `invalid_size`.',
           ),
         deps: z
           .array(z.string())
