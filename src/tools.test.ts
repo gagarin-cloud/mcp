@@ -1303,6 +1303,185 @@ test('a link is one POST and an unlink is one DELETE', async () => {
   }
 });
 
+/*
+  Keys, freshness and review: fields the memory service took on, which the
+  engine forwards untouched. All this server has to do is declare them and pass
+  them on, so these assert exactly that — the query string or the body as it
+  leaves — plus the one refusal made here rather than there.
+*/
+test('a briefing passes focus and paths on, so it is tailored to the task', async () => {
+  const kit = await connected(() => json({ text: 'Relevant to focus:\n#4 gotcha · Raw body · 30t' }));
+  try {
+    const result = await kit.client.callTool({
+      name: 'memory_briefing',
+      arguments: {
+        project: 'shop',
+        focus: 'stripe webhooks & retries',
+        paths: ['src/hooks', 'src/api/pay.ts'],
+        budget: 1200,
+      },
+    });
+    assert.equal(
+      kit.seen[0]?.url,
+      'https://api.example/v1/projects/shop/memory/briefing' +
+        '?focus=stripe%20webhooks%20%26%20retries&paths=src%2Fhooks,src%2Fapi%2Fpay.ts&budget=1200',
+    );
+    assert.equal(textOf(result), 'Relevant to focus:\n#4 gotcha · Raw body · 30t');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('a get reads by key as well as by id', async () => {
+  const kit = await connected(() => json({ text: '#15 state · Current deploy [deploy/current]' }));
+  try {
+    const got = await kit.client.callTool({
+      name: 'memory_get',
+      arguments: { project: 'shop', keys: ['deploy/current', 'owner:billing'] },
+    });
+    assert.equal(kit.seen[0]?.method, 'GET');
+    assert.equal(
+      kit.seen[0]?.url,
+      'https://api.example/v1/projects/shop/memory?keys=deploy%2Fcurrent,owner%3Abilling',
+    );
+    assert.equal(textOf(got), '#15 state · Current deploy [deploy/current]');
+
+    await kit.client.callTool({
+      name: 'memory_get',
+      arguments: { project: 'shop', ids: [3], keys: ['deploy/current'] },
+    });
+    assert.equal(kit.seen[1]?.url, 'https://api.example/v1/projects/shop/memory?ids=3&keys=deploy%2Fcurrent');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// With neither, the route would be the search route with nothing on it — a
+// browse by rank answered as if it were the memories asked for.
+test('a get naming neither ids nor keys is refused, and nothing is sent', async () => {
+  const kit = await connected(() => json({ text: 'a browse by rank' }));
+  try {
+    for (const args of [{}, { ids: [] }, { keys: [] }, { ids: [], keys: [] }]) {
+      const result: any = await kit.client.callTool({
+        name: 'memory_get',
+        arguments: { project: 'shop', ...args },
+      });
+      assert.equal(result.isError, true);
+      assert.match(textOf(result), /^\[nothing_to_get\] nothing to read: name at least one id or key/);
+      assert.doesNotMatch(textOf(result), /browse/);
+    }
+    assert.equal(kit.seen.length, 0);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('remember passes a key on in the body', async () => {
+  const kit = await connected(() =>
+    json({ id: 15, text: 'Replaced #12 (key deploy/current); its links moved to #15.' }, 201),
+  );
+  try {
+    const result = await kit.client.callTool({
+      name: 'remember',
+      arguments: {
+        project: 'shop',
+        kind: 'state',
+        title: 'Current deploy',
+        body: 'v1.4, rolled out 2026-10-26.',
+        key: 'deploy/current',
+      },
+    });
+    assert.equal(kit.seen[0]?.method, 'POST');
+    assert.deepEqual(kit.seen[0]?.body, {
+      kind: 'state',
+      title: 'Current deploy',
+      body: 'v1.4, rolled out 2026-10-26.',
+      key: 'deploy/current',
+    });
+    assert.equal(textOf(result), 'Replaced #12 (key deploy/current); its links moved to #15.');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('an update clears a key with null, and confirms or disputes', async () => {
+  const kit = await connected(() => json({ id: 12, text: 'Updated #12.' }));
+  try {
+    await kit.client.callTool({
+      name: 'memory_update',
+      arguments: { project: 'shop', id: 12, key: null },
+    });
+    assert.equal(kit.seen[0]?.method, 'PATCH');
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/memory/12');
+    // null goes as null — it is the clear — and is not dropped as absent.
+    assert.deepEqual(kit.seen[0]?.body, { key: null });
+
+    await kit.client.callTool({
+      name: 'memory_update',
+      arguments: { project: 'shop', id: 12, confirm: true },
+    });
+    assert.deepEqual(kit.seen[1]?.body, { confirm: true });
+
+    await kit.client.callTool({
+      name: 'memory_update',
+      arguments: { project: 'shop', id: 12, dispute: true, key: 'deploy/current' },
+    });
+    assert.deepEqual(kit.seen[2]?.body, { dispute: true, key: 'deploy/current' });
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('the nothing-to-update hint names the new fields', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const result: any = await kit.client.callTool({
+      name: 'memory_update',
+      arguments: { project: 'shop', id: 4 },
+    });
+    assert.match(textOf(result), /hint: .*\bkey\b/);
+    assert.match(textOf(result), /hint: .*\bconfirm\b/);
+    assert.match(textOf(result), /hint: .*\bdispute\b/);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('a review is one GET with its budget, and answers the rendered text', async () => {
+  const kit = await connected(() =>
+    json({ text: 'Review of shop\nDisputed:\n#9 gotcha · Old webhook secret ⚠ disputed', sections: [] }),
+  );
+  try {
+    const result = await kit.client.callTool({
+      name: 'memory_review',
+      arguments: { project: 'shop', budget: 900 },
+    });
+    assert.equal(kit.seen[0]?.method, 'GET');
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/memory/review?budget=900');
+    assert.equal(textOf(result), 'Review of shop\nDisputed:\n#9 gotcha · Old webhook secret ⚠ disputed');
+
+    await kit.client.callTool({ name: 'memory_review', arguments: { project: 'shop' } });
+    assert.equal(kit.seen[1]?.url, 'https://api.example/v1/projects/shop/memory/review');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// Export and import are for people and scripts, and a tool definition costs
+// tokens in every session; neither is offered.
+test('memory export and import are not tools', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const names = tools.map((t) => t.name);
+    for (const absent of ['memory_export', 'memory_import', 'export', 'import']) {
+      assert.ok(!names.includes(absent), `${absent} must not be offered`);
+    }
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 // The rules an agent cannot find out by trying, in the words it reads. Each is
 // on the tool where it is needed, because the description is the only
 // documentation a tool call ever sees.
@@ -1315,15 +1494,36 @@ test('the memory tools carry the rules that cannot be discovered by trying', asy
     assert.match(by('memory_search'), /before exploring code/i);
     assert.match(by('remember'), /one fact per memory, in english/i);
     assert.match(by('remember'), /memory_duplicate/);
-    assert.match(by('remember'), /never put a secret in a tag or a path/i);
+    assert.match(by('remember'), /never put a secret in a key, a tag or a path/i);
     assert.match(by('remember'), /do not store credentials in memory/i);
     assert.match(by('remember'), /needs editor/i);
     assert.match(by('memory_briefing'), /needs viewer/i);
+    assert.match(by('memory_briefing'), /last 7 days|past 7 days/i);
+    assert.match(by('memory_briefing'), /`focus`/);
+    assert.match(by('memory_get'), /by key/i);
+    // A key is stored in the clear, like tags and paths, and the tool says so.
+    assert.match(by('remember'), /kind, key, tags and paths are not/i);
+    assert.match(by('memory_update'), /key, tags and paths are not encrypted/i);
+    assert.match(by('memory_update'), /`confirm`/);
+    assert.match(by('memory_update'), /`dispute`/);
+    assert.match(by('memory_update'), /editing the title or body also counts as confirming/i);
+    assert.match(by('memory_review'), /housekeeping/i);
+    assert.match(by('memory_review'), /disputed/i);
+    assert.match(by('memory_review'), /needs viewer/i);
     // The kinds are named once, on the field, because a wrong one is refused
     // only after the body was written — and as prose, not an enum, so the
     // engine's list stays the list.
     const remember = tools.find((t) => t.name === 'remember')!;
     const props = (remember.inputSchema as any).properties;
+    assert.match(String(props.key.description), /deploy\/current/);
+    assert.match(String(props.key.description), /not encrypted/i);
+    const update = (tools.find((t) => t.name === 'memory_update')!.inputSchema as any).properties;
+    assert.match(String(update.key.description), /null clears it/);
+    assert.match(String(update.confirm.description), /still true/);
+    assert.match(String(update.dispute.description), /probably wrong/);
+    const briefing = (tools.find((t) => t.name === 'memory_briefing')!.inputSchema as any).properties;
+    assert.match(String(briefing.focus.description), /about to work on/);
+    assert.match(String(briefing.paths.description), /you will touch/);
     assert.match(
       String(props.kind.description),
       /overview, architecture, decision, convention, gotcha, howto, reference, state/,
@@ -1355,7 +1555,7 @@ test('the project tools and the guide say to note the project in .gagarin.json',
     assert.match(text, /note, not configuration/i);
     assert.match(text, /prefer the id/i);
     assert.match(text, /memory_briefing/);
-    assert.match(text, /never put a secret in a tag/i);
+    assert.match(text, /never put a secret in a key, a tag or a path/i);
   } finally {
     await kit[Symbol.asyncDispose]();
   }

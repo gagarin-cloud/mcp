@@ -1408,6 +1408,11 @@ export function registerTools(server: McpServer, api: Api): void {
   // its refusals name them. The list of kinds is in a description only because
   // an agent cannot guess it and the refusal for a wrong one arrives after the
   // body was written.
+  //
+  // Export and import have no tool here, deliberately. They are for people and
+  // scripts — a whole project in one document, unbudgeted — and every tool's
+  // definition is paid for in every session's context, whether it is called or
+  // not.
 
   const memoryId = z.number().int().describe('a memory id, the number after # in any listing');
   const memoryBudget = z
@@ -1423,6 +1428,13 @@ export function registerTools(server: McpServer, api: Api): void {
     .array(z.string())
     .optional()
     .describe('files or directories this is about, relative to the repository. Not encrypted.');
+  const memoryKey = z
+    .string()
+    .describe(
+      'stable name for a mutable fact, e.g. deploy/current — a later remember with the same key ' +
+        'replaces the memory holding it, moving its links. Use it for `state` memories that change. ' +
+        'Not encrypted.',
+    );
 
   tool(
     'memory_briefing',
@@ -1430,16 +1442,25 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'Read project briefing',
       description:
         'What is known about a project, packed to a token budget: pinned and top-ranked memories ' +
-        'in full, the rest as one-line index entries with their ids, and an overview of kinds and ' +
-        'tags. **Call this first when starting work on a project**, before reading code — it is ' +
-        "what the last session left for this one. Answers the memory service's own compact " +
-        'text, not JSON. Needs viewer.',
-      inputSchema: { project, budget: memoryBudget },
+        'in full, the rest as one-line index entries with their ids, an overview of kinds and ' +
+        'tags, and last what changed in the past 7 days. `focus` and `paths` tailor it to your ' +
+        'task: the memories that match come right after the pinned ones. **Call this first when ' +
+        'starting work on a project**, before reading code — it is what the last session left ' +
+        "for this one. Answers the memory service's own compact text, not JSON. Needs viewer.",
+      inputSchema: {
+        project,
+        focus: z
+          .string()
+          .optional()
+          .describe('what you are about to work on; relevant memories get part of the budget'),
+        paths: z.array(z.string()).optional().describe('files or directories you will touch'),
+        budget: memoryBudget,
+      },
       annotations: reads('Read project briefing'),
     },
-    ({ project, budget }) =>
+    ({ project, ...params }) =>
       attempt(async () =>
-        rendered(await api.call(`/v1/projects/${seg(project)}/memory/briefing${qs({ budget })}`)),
+        rendered(await api.call(`/v1/projects/${seg(project)}/memory/briefing${qs(params)}`)),
       ),
   );
 
@@ -1482,16 +1503,31 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Read memories in full',
       description:
-        'The full text of the memories named, with the links each one carries. For the ids an ' +
-        'index line or a search gave you; reading two linked memories together strengthens the ' +
-        'link between them. Needs viewer.',
-      inputSchema: { project, ids: z.array(memoryId).describe('the memories to read') },
+        'The full text of the memories named, by id or by key, with the links each one carries. ' +
+        'For the ids an index line or a search gave you, or a key like deploy/current; reading ' +
+        'two linked memories together strengthens the link between them. Needs viewer.',
+      inputSchema: {
+        project,
+        ids: z.array(memoryId).optional().describe('the memories to read'),
+        keys: z.array(z.string()).optional().describe('the memories to read, by key'),
+      },
       annotations: reads('Read memories in full'),
     },
-    ({ project, ids }) =>
-      attempt(async () =>
-        rendered(await api.call(`/v1/projects/${seg(project)}/memory${qs({ ids: ids.map(String) })}`)),
-      ),
+    ({ project, ids, keys }) =>
+      attempt(async () => {
+        // Neither is a read of nothing, and the engine would refuse it only
+        // after the round trip; say which two fields would do.
+        if (!ids?.length && !keys?.length) {
+          throw new ApiFailure(400, {
+            code: 'nothing_to_get',
+            message: 'nothing to read: name at least one id or key',
+            fix_hint: 'ids from an index line or a search, or keys like deploy/current',
+          });
+        }
+        return rendered(
+          await api.call(`/v1/projects/${seg(project)}/memory${qs({ ids: ids?.map(String), keys })}`),
+        );
+      }),
   );
 
   tool(
@@ -1530,8 +1566,8 @@ export function registerTools(server: McpServer, api: Api): void {
         'it collided with — `memory_update` one of those, or pass `supersedes` to replace it, ' +
         'rather than `force`, which keeps both and makes every later search worse. The answer ' +
         'names the id, and may suggest memories to link and warn about length or language.\n' +
-        'Title, body and source are encrypted at rest; kind, tags and paths are not. **Never put ' +
-        'a secret in a tag or a path, and do not store credentials in memory at all** — they ' +
+        'Title, body and source are encrypted at rest; kind, key, tags and paths are not. **Never ' +
+        'put a secret in a key, a tag or a path, and do not store credentials in memory at all** — they ' +
         'belong in an `external` resource. Needs editor.',
       inputSchema: {
         project,
@@ -1557,6 +1593,7 @@ export function registerTools(server: McpServer, api: Api): void {
         links: z.array(memoryId).optional().describe('memories this one relates to'),
         link_note: z.string().optional().describe('why they relate, one short line'),
         supersedes: memoryId.optional().describe('the memory this replaces; its links move to the new one'),
+        key: memoryKey.optional(),
         force: z.boolean().optional().describe('save even beside a near-duplicate. Almost never right.'),
         source: z.string().optional().describe('who or what wrote it, e.g. the agent and session'),
       },
@@ -1574,10 +1611,12 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'Update a memory',
       description:
         'Changes the fields named and leaves the rest alone: correct a body, retitle, retag, ' +
-        'change the kind, pin or unpin, or archive with `status: "archived"` — an archived ' +
-        'memory leaves every briefing, search and link walk but is not deleted. This is the ' +
-        'right answer to a `memory_duplicate` refusal when the existing memory is the one to ' +
-        'amend. Tags and paths are not encrypted; keep secrets out of them. Needs editor.',
+        'change the kind, set or clear the key, pin or unpin, or archive with `status: ' +
+        '"archived"` — an archived memory leaves every briefing, search and link walk but is not ' +
+        'deleted. `confirm` says it still holds and `dispute` says it is probably wrong; editing ' +
+        'the title or body also counts as confirming. This is the right answer to a ' +
+        '`memory_duplicate` refusal when the existing memory is the one to amend. Key, tags and ' +
+        'paths are not encrypted; keep secrets out of them. Needs editor.',
       inputSchema: {
         project,
         id: memoryId,
@@ -1590,6 +1629,20 @@ export function registerTools(server: McpServer, api: Api): void {
         importance: z.number().int().optional().describe('1 to 5'),
         status: z.string().optional().describe('`active` or `archived`'),
         source: z.string().optional(),
+        key: memoryKey
+          .nullable()
+          .optional()
+          .describe('the stable name `remember` takes; null clears it. Not encrypted.'),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe('it is still true: resets its age in rankings and clears a dispute'),
+        dispute: z
+          .boolean()
+          .optional()
+          .describe(
+            'it is probably wrong: marks it ⚠ and lowers its rank until it is confirmed, edited or archived',
+          ),
       },
       annotations: writes('Update a memory', { idempotent: true }),
     },
@@ -1602,14 +1655,33 @@ export function registerTools(server: McpServer, api: Api): void {
             code: 'nothing_to_update',
             message: `nothing to update on #${id}: name at least one field to change`,
             fix_hint:
-              'title, body, kind, tags, paths, source, importance, pinned or status — ' +
-              'archive with status: "archived"',
+              'title, body, kind, key, tags, paths, source, importance, pinned, status, confirm ' +
+              'or dispute — archive with status: "archived"',
           });
         }
         return rendered(
           await api.call(`/v1/projects/${seg(project)}/memory/${id}`, { method: 'PATCH', body }),
         );
       }),
+  );
+
+  tool(
+    'memory_review',
+    {
+      title: 'Review project memory',
+      description:
+        "Housekeeping report for a project's memory: likely duplicates, orphans, oversized, stale, " +
+        'unread and disputed memories, and distance to the cap, packed to a budget. Call it when a ' +
+        'briefing shows a ⚠ disputed count, when `remember` warns about the cap, or at the end of a ' +
+        'long session. Fixes are ordinary remember supersedes=, memory_link, memory_update calls. ' +
+        'Needs viewer.',
+      inputSchema: { project, budget: memoryBudget },
+      annotations: reads('Review project memory'),
+    },
+    ({ project, budget }) =>
+      attempt(async () =>
+        rendered(await api.call(`/v1/projects/${seg(project)}/memory/review${qs({ budget })}`)),
+      ),
   );
 
   tool(

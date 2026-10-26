@@ -236,8 +236,9 @@ registry, and it is reachable only through this server: there is no \`gg\`
 command and no console page for it.
 
 - **Start with \`memory_briefing\`.** One call, packed to a token budget: the
-  pinned and top-ranked memories in full, the rest as index lines with ids.
-  Do it before reading code.
+  pinned and top-ranked memories in full, the rest as index lines with ids,
+  then what changed in the last 7 days. Do it before reading code, with
+  \`focus\` naming the task so the memories about it get part of the budget.
 - **\`memory_search\` before exploring.** Hybrid semantic and keyword search; a
   question about why something is the way it is has often been answered.
   \`memory_get\` reads the ids an index line gave you; \`memory_related\` walks
@@ -250,13 +251,19 @@ command and no console page for it.
   one of those, or \`supersedes\` it, rather than \`force\` — forcing keeps both
   and makes every later search worse. Archive with \`memory_update\` and
   \`status: "archived"\`; nothing is deleted.
+- **A fact that changes gets a \`key\`**, e.g. \`deploy/current\`: a later
+  \`remember\` with the same key replaces it, and \`memory_get\` reads by key.
+- **Memories age.** \`memory_update\` with \`confirm\` when one still holds,
+  \`dispute\` when it is probably wrong. A briefing with a ⚠ disputed count, a
+  cap warning from \`remember\`, or the end of a long session is the time for
+  \`memory_review\`.
 - **Memories in use are billed**, on the same meter as everything else: $0.10
   per 1,000 a month, a few cents for most projects, and capped per project.
   Reading is not charged. An archived memory is not counted, so archive what is
   no longer true rather than leaving it to mislead the next briefing.
-- **Title, body and source are encrypted at rest; kind, tags and paths are
-  not.** Never put a secret in a tag or a path, and do not store credentials in
-  memory at all — an \`external\` resource is where those go.
+- **Title, body and source are encrypted at rest; kind, key, tags and paths
+  are not.** Never put a secret in a key, a tag or a path, and do not store
+  credentials in memory at all — an \`external\` resource is where those go.
 - Reads need viewer; writes need editor, like every other write here.
 
 The memory tools answer the service's own compact text rather than JSON. That

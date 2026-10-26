@@ -5,7 +5,7 @@
 Add one URL to your agent and it can run your app at a live HTTPS address, give
 it Postgres, Qdrant, Valkey, a queue or a bucket, wire what may reach what, and
 roll back. Alerts, logs, backups and project memory come with it, and nothing is
-deleted without your approval by email. It is Gagarin's API, as tools: 50 of
+deleted without your approval by email. It is Gagarin's API, as tools: 51 of
 them, every one annotated so a client knows which to ask you about first.
 Building and pushing an image needs docker and the source, so that one step is
 `gg ship` on the machine that has them; everything after it is here.
@@ -108,13 +108,17 @@ read (viewer) and who may write (editor), on every call, like everything else.
 
 | tool | what it does |
 |---|---|
-| `memory_briefing` | what is known about a project, packed to a token budget — the first call on a project |
+| `memory_briefing` | what is known about a project, packed to a token budget — the first call on a project; `focus` and `paths` tailor it, and it ends with the last 7 days' changes |
 | `memory_search` | hybrid semantic + keyword search; no query browses by rank |
-| `memory_get` | memories in full, by id |
+| `memory_get` | memories in full, by id or key |
 | `memory_related` | walk the links out from one memory |
-| `remember` | save one fact; a near-duplicate is refused with the memories it collided with |
-| `memory_update` | change fields, pin, or archive |
+| `remember` | save one fact; a near-duplicate is refused with the memories it collided with, and a `key` replaces the memory holding it |
+| `memory_update` | change fields, set or clear the key, pin, archive, `confirm` it still holds or `dispute` it |
 | `memory_link` / `memory_unlink` | associate two memories, or stop |
+| `memory_review` | housekeeping: likely duplicates, orphans, oversized, stale, unread and disputed memories, distance to the cap |
+
+Export and import have no tool: they are for people and scripts, and a tool's
+definition costs tokens in every session whether it is called or not.
 
 These answer the memory service's own `text` — a plain-text rendering packed to
 the budget — rather than the JSON around it. That is a narrower case of the rule
