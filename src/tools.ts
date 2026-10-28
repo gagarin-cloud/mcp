@@ -329,7 +329,9 @@ export function registerTools(server: McpServer, api: Api): void {
         'Projects this account owns or has been shared with, and the role on each. A `viewer` ' +
         'role means every deploy will be refused, which is worth knowing before the attempt. ' +
         'Names are unique only within one account, so two rows can share a name — the id tells ' +
-        'them apart, and every other tool takes either. Once you know which project a repository ' +
+        'them apart, and every other tool takes either. Each row carries `cluster`, where the ' +
+        'project runs (e.g. `fr-par-1`); it never changes, and it is part of every generated ' +
+        'address, `<service>-<project>.<cluster>.apps.gagarin.cloud`. Once you know which project a repository ' +
         'is, note its id and name in `.gagarin.json` at the repository root for the next session; ' +
         'if that file is already there, read it before asking here.',
       inputSchema: {},
@@ -344,7 +346,9 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'Create project',
       description:
         'A project is the unit of naming, access and billing: everything else lives inside one. ' +
-        'Returns its id, which is what image paths are built from. Note that id and the name in ' +
+        'Returns its id, which is what image paths are built from, and its `cluster`, where it ' +
+        'runs (e.g. `fr-par-1`) — chosen by Gagarin, and the middle of every generated address, ' +
+        '`<service>-<project>.<cluster>.apps.gagarin.cloud`. Note that id and the name in ' +
         '`.gagarin.json` at the repository root — `{ "project": { "id": "…", "name": "…" } }` — ' +
         'so the next session knows whose briefing to ask for; it is a note, not configuration, ' +
         'and no tool reads it.',
@@ -366,7 +370,9 @@ export function registerTools(server: McpServer, api: Api): void {
         'The only call that reads the cluster, and so the only one that can answer "is it up". ' +
         'Every write on this server is asynchronous — a tool that returns without error recorded ' +
         'a demand, it did not watch it come true — so this is what you check afterwards. Carries ' +
-        'every service and resource, its addresses, its size, whether it is in sync, and what the ' +
+        '`cluster` (where the project runs, e.g. `fr-par-1`), every service and resource, its ' +
+        'addresses (generated ones look like ' +
+        '`<service>-<project>.<cluster>.apps.gagarin.cloud`), its size, whether it is in sync, and what the ' +
         'project has cost since midnight UTC. A job has none of the service vocabulary — no ' +
         'ready count, no port, no address — and carries its latest run instead: which revision, ' +
         'what phase, how long it took and the exit code. That is the only way to learn how a ' +
@@ -714,7 +720,8 @@ export function registerTools(server: McpServer, api: Api): void {
         'held. With one, claims that name — and the answer says what DNS record the owner has to ' +
         'add before it can be issued. Both are idempotent; restating one repairs its ingress. A ' +
         'service is private until this call and a deploy can neither give an address nor take one ' +
-        'away.',
+        'away. A custom subdomain is told to CNAME to `<cluster>.apps.gagarin.cloud`; the answer ' +
+        'carries the exact record.',
       inputSchema: {
         project,
         service,
