@@ -213,15 +213,13 @@ const destroys = (title: string, o: { idempotent: boolean }): Annotations => ({
  *
  * Not a guess and not a restatement of the tool list: this is the engine's
  * `requireElevation` call sites, one per line, and it is the whole set — there
- * are six of them in the API and `destroyRow` serves two tools:
+ * are five of them in the API and `destroyRow` serves two tools:
  *
  *   api.go deleteProject      → destroy_project
  *   api.go destroyRow         → destroy_service, destroy_resource
  *   domains.go deleteDomain   → remove_domain
  *   connections.go setNeeds   → set_deps, when the new set drops an edge
  *   ownership.go postTransfer → transfer
- *   resources.go changeExtensions → add_resource, when a postgres's
- *                                   `extensions` drops one
  *
  * Every one of these must be `destructiveHint: true`, and tools.test.ts asserts
  * it against this table rather than against a list of its own. Two of them read
@@ -230,13 +228,9 @@ const destroys = (title: string, o: { idempotent: boolean }): Annotations => ({
  * annotation is the only place an agent learns that before it calls.
  *
  * `set_deps` is here on the worst case, because an annotation is static and the
- * refusal is not: a set that only adds goes straight through. `add_resource`
- * is here on the same reasoning — creating a resource, resizing it or adding a
- * postgres extension goes straight through, and only a restatement of
- * `extensions` that leaves one out stops for the owner.
+ * refusal is not: a set that only adds goes straight through.
  */
 export const APPROVAL_REQUIRED: ReadonlySet<string> = new Set([
-  'add_resource',
   'destroy_project',
   'destroy_resource',
   'destroy_service',
@@ -866,9 +860,8 @@ export function registerTools(server: McpServer, api: Api): void {
         'A `postgres` takes `extensions` — pgvector, PostGIS, pg_cron and the contrib set; see that ' +
         'parameter. **For embeddings, prefer `vector` on the postgres the app already has**: tables ' +
         'and vectors in one database, joined and in one transaction. Pick a `qdrant` when the ' +
-        'vectors are the product. Expect `approval_required` only when `extensions` drops one: ' +
-        'the account owner is emailed a button; ask your human to click it, then make the same ' +
-        'call again. Creating, resizing and adding extensions never wait.',
+        'vectors are the product. Nothing here asks a human: creating, resizing, and adding or ' +
+        'dropping extensions all go straight through — a drop refuses rather than loses anything.',
       inputSchema: {
         project,
         resource,
@@ -899,11 +892,13 @@ export function registerTools(server: McpServer, api: Api): void {
               'database should have, named as CREATE EXTENSION names them — **the whole set, not a ' +
               'delta**. Leave it out to keep the ones it has (the same rule as `size`); `[]` means ' +
               'none. On create they exist before the database is first ready. Adding one to a ' +
-              'running postgres is immediate, with no restart. Dropping one answers ' +
-              '`approval_required`: ask your human to click the emailed button, then call again. A ' +
-              'drop never CASCADEs — if a column uses the extension (a `vector` column, say), ' +
-              'postgres refuses and the answer is `extensions_failed` with its own reason, and ' +
-              'nothing in the call is changed. Requirements come with them: `earthdistance` adds ' +
+              'running postgres is immediate, with no restart. Dropping one asks no human, because a ' +
+              'drop refuses rather than loses anything: it never CASCADEs, so a column, index, view ' +
+              'or SQL-standard function that uses the extension stops it, and it is refused while ' +
+              "the extension's own tables hold your data — pg_cron's jobs and run history, " +
+              "pg_partman's partition config, a spatial reference system you added to PostGIS. The " +
+              "answer is `extensions_failed` carrying postgres's own reason, and nothing in the call " +
+              'is changed; to really drop it, remove what is in the way first. Requirements come with them: `earthdistance` adds ' +
               '`cube`. An unknown name is `unknown_extension`, whose hint lists every offered name. ' +
               'pgvector is called **`vector`**. Offered: `vector` (pgvector: vector columns with HNSW ' +
               'and IVFFlat indexes, for embeddings), `postgis` (geometry and geography types, ' +
@@ -922,7 +917,7 @@ export function registerTools(server: McpServer, api: Api): void {
               'timescaledb, raster, dblink and the foreign-data wrappers, untrusted languages.',
           ),
       },
-      annotations: destroys('Add resource', { idempotent: true }),
+      annotations: writes('Add resource', { idempotent: true }),
     },
     ({ project, resource, ...body }) =>
       attempt(() =>

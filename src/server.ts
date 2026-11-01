@@ -62,8 +62,7 @@ Eight things that are true of every call here:
    is kept 8 hours after it ends, and then a one-shot job is gone with it;
    \`ttl_seconds\` on \`run\` keeps it for less.
 8. You can deploy; you cannot take anything away. Every deletion, every released
-   address, any \`set_deps\` that drops an edge the service currently holds, and
-   any \`add_resource\` whose \`extensions\` drops one a postgres has
+   address, and any \`set_deps\` that drops an edge the service currently holds
    answers \`approval_required\` and emails the account owner a button. Call it
    again after they click — one click covers the fifteen minutes after it. No
    credential changes this. Adding is always free.
@@ -157,11 +156,20 @@ pgvector is called \`vector\`. The rules:
 - On create they exist before the database is first ready. Adding one to a
   running postgres is immediate, with no restart. What one needs comes with it:
   \`earthdistance\` adds \`cube\`.
-- Dropping one is a removal: \`approval_required\`, then the same call again once
-  your human has clicked. It never CASCADEs — if a column uses the extension,
-  postgres refuses and the answer is \`extensions_failed\` carrying postgres's own
-  reason (\`column e of table items depends on type vector\`). The change is one
-  transaction, so a refused call changes nothing at all.
+- Dropping one asks no human, because a drop refuses rather than loses
+  anything, so one that succeeds cost nothing. It never CASCADEs: a column, an
+  index, a view or a SQL-standard function that uses the extension stops it. And
+  it is refused while the extension's own tables hold your data — pg_cron's jobs
+  (\`cron.job\`) and run history, pg_partman's partition config
+  (\`partman.part_config\`), a spatial reference system you added to PostGIS's
+  \`spatial_ref_sys\` — which a plain DROP would otherwise delete. The answer is
+  \`extensions_failed\` carrying postgres's own reason (\`column e of table items
+  depends on type vector\`, \`extension pg_cron holds 1 row(s) of your data in
+  cron.job; …\`). The change is one transaction, so a refused call changes
+  nothing at all; to really drop it, your human removes what is in the way
+  first. A plpgsql function that uses the extension breaks when called, since
+  postgres does not track plpgsql bodies — nothing is lost, and adding the
+  extension back mends it.
 - Offered: \`vector\`, \`postgis\` (no raster), \`pg_cron\` (jobs run in database
   \`app\`), \`pg_partman\` (in schema \`partman\`), \`pgaudit\` (set \`pgaudit.log\` to
   turn it on), and contrib — \`pg_stat_statements\`, \`pg_trgm\`, \`pgcrypto\`,
@@ -344,8 +352,10 @@ wrong:
 - A \`remember\` refused with \`memory_duplicate\`: the refusal lists what it
   collided with. Update or supersede one of those; do not force.
 - \`add_resource\` refused with \`extensions_failed\`: postgres would not drop an
-  extension something still uses, and its reason names the column. Nothing
-  changed. Drop or migrate that column first, or keep the extension.
+  extension something still uses, or whose own tables still hold the user's
+  rows (pg_cron's jobs, say), and its reason names the column or the table.
+  Nothing changed. Remove what is in the way first — ask your human before
+  deleting their jobs or data — or keep the extension.
 - A deploy refused with \`insufficient_scope\`: the credential is a browser
   session or a viewer role. \`whoami\` and \`projects\` say which.
 - Your human wants to hear about outages without asking you: they open

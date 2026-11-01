@@ -395,7 +395,7 @@ test('a restore is one call and never asks for a type', async () => {
 
 // `extensions` is the whole set, so the three shapes mean three different
 // things and must reach the engine as three different bodies: absent keeps what
-// the postgres has, `[]` asks for none (and drops every one, behind approval),
+// the postgres has, `[]` asks for none (and drops every one, guarded),
 // and a list is exactly that list. A client that turned absent into `[]`, or
 // dropped an empty array, would change the database by saying nothing.
 test('add_resource passes extensions through: absent, empty and a list stay distinct', async () => {
@@ -408,7 +408,8 @@ test('add_resource passes extensions through: absent, empty and a list stay dist
     assert.match(ext, /whole set/i);
     assert.match(ext, /`\[\]` means none/);
     assert.match(ext, /no restart/i);
-    assert.match(ext, /approval_required/);
+    assert.doesNotMatch(ext, /approval_required/);
+    assert.match(ext, /asks no human/);
     assert.match(ext, /never CASCADEs/);
     assert.match(ext, /extensions_failed/);
     assert.match(ext, /pgvector is called \*\*`vector`\*\*/);
