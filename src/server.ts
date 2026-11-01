@@ -62,7 +62,8 @@ Eight things that are true of every call here:
    is kept 8 hours after it ends, and then a one-shot job is gone with it;
    \`ttl_seconds\` on \`run\` keeps it for less.
 8. You can deploy; you cannot take anything away. Every deletion, every released
-   address, and any \`set_deps\` that drops an edge the service currently holds
+   address, any \`set_deps\` that drops an edge the service currently holds, and
+   any \`add_resource\` whose \`extensions\` drops one a postgres has
    answers \`approval_required\` and emails the account owner a button. Call it
    again after they click — one click covers the fifteen minutes after it. No
    credential changes this. Adding is always free.
@@ -144,6 +145,40 @@ read like a platform fault:
    no second call and nothing to copy by hand — \`resource_secrets\` exists for
    something *outside* the project, not for a service inside it.
 3. \`status\` to watch it come up.
+
+A postgres takes \`extensions\`: the postgres extensions it should have, named
+as CREATE EXTENSION names them — \`{"type":"postgres","extensions":["vector","postgis"]}\`.
+pgvector is called \`vector\`. The rules:
+
+- It is **the whole set**, not a delta. Leave it out and the extensions stay as
+  they are, like \`size\`; \`[]\` means none. Only a postgres takes it
+  (\`no_extensions\` otherwise), and a name outside the catalogue is
+  \`unknown_extension\`, whose hint lists every name offered.
+- On create they exist before the database is first ready. Adding one to a
+  running postgres is immediate, with no restart. What one needs comes with it:
+  \`earthdistance\` adds \`cube\`.
+- Dropping one is a removal: \`approval_required\`, then the same call again once
+  your human has clicked. It never CASCADEs — if a column uses the extension,
+  postgres refuses and the answer is \`extensions_failed\` carrying postgres's own
+  reason (\`column e of table items depends on type vector\`). The change is one
+  transaction, so a refused call changes nothing at all.
+- Offered: \`vector\`, \`postgis\` (no raster), \`pg_cron\` (jobs run in database
+  \`app\`), \`pg_partman\` (in schema \`partman\`), \`pgaudit\` (set \`pgaudit.log\` to
+  turn it on), and contrib — \`pg_stat_statements\`, \`pg_trgm\`, \`pgcrypto\`,
+  \`uuid-ossp\`, \`citext\`, \`hstore\`, \`ltree\`, \`unaccent\`, \`fuzzystrmatch\`,
+  \`btree_gin\`, \`btree_gist\`, \`cube\`, \`earthdistance\`, \`intarray\`,
+  \`tablefunc\`, \`amcheck\`, \`pg_buffercache\`. Not offered: timescaledb (its
+  licence forbids a hosted service), raster, dblink and the foreign-data
+  wrappers, untrusted languages.
+- \`status\` and the \`resource\` in the answer list them as \`extensions\`. The
+  connection variables, sizes, backups and pricing do not change: every postgres
+  has every extension available, so any postgres backup restores into any
+  postgres.
+
+**Vectors: a postgres with \`vector\`, or a \`qdrant\`?** \`vector\` on a postgres
+keeps relational tables and embeddings in one database, joined and in one
+transaction — the default for an app that already needs postgres and adds
+retrieval. A \`qdrant\` is for when the vectors are the product.
 
 ## Adding a message stream
 
@@ -308,6 +343,9 @@ wrong:
   timeout, not a refusal.
 - A \`remember\` refused with \`memory_duplicate\`: the refusal lists what it
   collided with. Update or supersede one of those; do not force.
+- \`add_resource\` refused with \`extensions_failed\`: postgres would not drop an
+  extension something still uses, and its reason names the column. Nothing
+  changed. Drop or migrate that column first, or keep the extension.
 - A deploy refused with \`insufficient_scope\`: the credential is a browser
   session or a viewer role. \`whoami\` and \`projects\` say which.
 - Your human wants to hear about outages without asking you: they open

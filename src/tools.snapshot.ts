@@ -18,7 +18,7 @@ export type SnapshotRow = readonly [string, boolean, boolean, boolean, boolean];
 
 export const TOOLS_SNAPSHOT: Readonly<Record<string, SnapshotRow>> = {
   add_domain: ['Add domain', false, false, true, false],
-  add_resource: ['Add resource', false, false, true, false],
+  add_resource: ['Add resource', false, true, true, false],
   alerts: ['Show project alerts', true, false, true, false],
   alerts_off: ['Turn off project alerts', false, false, true, false],
   backup_resource: ['Back up resource', false, false, false, false],
