@@ -145,6 +145,49 @@ read like a platform fault:
    something *outside* the project, not for a service inside it.
 3. \`status\` to watch it come up.
 
+A postgres takes \`extensions\`: the postgres extensions it should have, named
+as CREATE EXTENSION names them — \`{"type":"postgres","extensions":["vector","postgis"]}\`.
+pgvector is called \`vector\`. The rules:
+
+- It is **the whole set**, not a delta. Leave it out and the extensions stay as
+  they are, like \`size\`; \`[]\` means none. Only a postgres takes it
+  (\`no_extensions\` otherwise), and a name outside the catalogue is
+  \`unknown_extension\`, whose hint lists every name offered.
+- On create they exist before the database is first ready. Adding one to a
+  running postgres is immediate, with no restart. What one needs comes with it:
+  \`earthdistance\` adds \`cube\`.
+- Dropping one asks no human, because a drop refuses rather than loses
+  anything, so one that succeeds cost nothing. It never CASCADEs: a column, an
+  index, a view or a SQL-standard function that uses the extension stops it. And
+  it is refused while the extension's own tables hold your data — pg_cron's jobs
+  (\`cron.job\`) and run history, pg_partman's partition config
+  (\`partman.part_config\`), a spatial reference system you added to PostGIS's
+  \`spatial_ref_sys\` — which a plain DROP would otherwise delete. The answer is
+  \`extensions_failed\` carrying postgres's own reason (\`column e of table items
+  depends on type vector\`, \`extension pg_cron holds 1 row(s) of your data in
+  cron.job; …\`). The change is one transaction, so a refused call changes
+  nothing at all; to really drop it, your human removes what is in the way
+  first. A plpgsql function that uses the extension breaks when called, since
+  postgres does not track plpgsql bodies — nothing is lost, and adding the
+  extension back mends it.
+- Offered: \`vector\`, \`postgis\` (no raster), \`pg_cron\` (jobs run in database
+  \`app\`), \`pg_partman\` (in schema \`partman\`), \`pgaudit\` (set \`pgaudit.log\` to
+  turn it on), and contrib — \`pg_stat_statements\`, \`pg_trgm\`, \`pgcrypto\`,
+  \`uuid-ossp\`, \`citext\`, \`hstore\`, \`ltree\`, \`unaccent\`, \`fuzzystrmatch\`,
+  \`btree_gin\`, \`btree_gist\`, \`cube\`, \`earthdistance\`, \`intarray\`,
+  \`tablefunc\`, \`amcheck\`, \`pg_buffercache\`. Not offered: timescaledb (its
+  licence forbids a hosted service), raster, dblink and the foreign-data
+  wrappers, untrusted languages.
+- \`status\` and the \`resource\` in the answer list them as \`extensions\`. The
+  connection variables, sizes, backups and pricing do not change: every postgres
+  has every extension available, so any postgres backup restores into any
+  postgres.
+
+**Vectors: a postgres with \`vector\`, or a \`qdrant\`?** \`vector\` on a postgres
+keeps relational tables and embeddings in one database, joined and in one
+transaction — the default for an app that already needs postgres and adds
+retrieval. A \`qdrant\` is for when the vectors are the product.
+
 ## Adding a message stream
 
 1. \`add_resource\` with type \`iggy\`. It is a private Apache Iggy log with one
@@ -308,6 +351,11 @@ wrong:
   timeout, not a refusal.
 - A \`remember\` refused with \`memory_duplicate\`: the refusal lists what it
   collided with. Update or supersede one of those; do not force.
+- \`add_resource\` refused with \`extensions_failed\`: postgres would not drop an
+  extension something still uses, or whose own tables still hold the user's
+  rows (pg_cron's jobs, say), and its reason names the column or the table.
+  Nothing changed. Remove what is in the way first — ask your human before
+  deleting their jobs or data — or keep the extension.
 - A deploy refused with \`insufficient_scope\`: the credential is a browser
   session or a viewer role. \`whoami\` and \`projects\` say which.
 - Your human wants to hear about outages without asking you: they open

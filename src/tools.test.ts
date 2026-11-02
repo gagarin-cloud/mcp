@@ -393,6 +393,50 @@ test('a restore is one call and never asks for a type', async () => {
   }
 });
 
+// `extensions` is the whole set, so the three shapes mean three different
+// things and must reach the engine as three different bodies: absent keeps what
+// the postgres has, `[]` asks for none (and drops every one, guarded),
+// and a list is exactly that list. A client that turned absent into `[]`, or
+// dropped an empty array, would change the database by saying nothing.
+test('add_resource passes extensions through: absent, empty and a list stay distinct', async () => {
+  const kit = await connected(() => json({ ok: true }));
+  try {
+    const { tools } = await kit.client.listTools();
+    const add = tools.find((t) => t.name === 'add_resource')!;
+    const ext = String((add.inputSchema.properties as any)?.extensions?.description);
+    assert.match(ext, /postgres only/i);
+    assert.match(ext, /whole set/i);
+    assert.match(ext, /`\[\]` means none/);
+    assert.match(ext, /no restart/i);
+    assert.doesNotMatch(ext, /approval_required/);
+    assert.match(ext, /asks no human/);
+    assert.match(ext, /never CASCADEs/);
+    assert.match(ext, /extensions_failed/);
+    assert.match(ext, /pgvector is called \*\*`vector`\*\*/);
+
+    await kit.client.callTool({
+      name: 'add_resource',
+      arguments: { project: 'shop', resource: 'db', type: 'postgres', size: 'small' },
+    });
+    await kit.client.callTool({
+      name: 'add_resource',
+      arguments: { project: 'shop', resource: 'db', type: 'postgres', extensions: [] },
+    });
+    await kit.client.callTool({
+      name: 'add_resource',
+      arguments: { project: 'shop', resource: 'db', type: 'postgres', extensions: ['vector', 'postgis'] },
+    });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/resources/db');
+    assert.equal(kit.seen[0]?.method, 'PUT');
+    assert.deepEqual(kit.seen[0]?.body, { type: 'postgres', size: 'small' });
+    assert.equal('extensions' in (kit.seen[0]?.body as object), false);
+    assert.deepEqual(kit.seen[1]?.body, { type: 'postgres', extensions: [] });
+    assert.deepEqual(kit.seen[2]?.body, { type: 'postgres', extensions: ['vector', 'postgis'] });
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 test('a refusal comes back as an error result an agent can branch on', async () => {
   const kit = await connected(() =>
     json(

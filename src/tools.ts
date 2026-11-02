@@ -856,7 +856,12 @@ export function registerTools(server: McpServer, api: Api): void {
         'An `s3` bucket is private until `publish_resource` says otherwise. A `rabbitmq` is a private ' +
         'message broker (queues and exchanges over AMQP 0-9-1, with its management UI on 15672); ' +
         'it is **not backed up**, so the application should declare its own queues and publish ' +
-        'persistent messages to durable queues for anything that must survive a restart.',
+        'persistent messages to durable queues for anything that must survive a restart. ' +
+        'A `postgres` takes `extensions` — pgvector, PostGIS, pg_cron and the contrib set; see that ' +
+        'parameter. **For embeddings, prefer `vector` on the postgres the app already has**: tables ' +
+        'and vectors in one database, joined and in one transaction. Pick a `qdrant` when the ' +
+        'vectors are the product. Nothing here asks a human: creating, resizing, and adding or ' +
+        'dropping extensions all go straight through — a drop refuses rather than loses anything.',
       inputSchema: {
         project,
         resource,
@@ -878,6 +883,38 @@ export function registerTools(server: McpServer, api: Api): void {
           .describe(
             'the values an `external` publishes to whatever declares it. Refused for every other ' +
               "type, whose credentials are Gagarin's to mint rather than yours to choose.",
+          ),
+        extensions: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'postgres only (any other type is refused `no_extensions`). The postgres extensions the ' +
+              'database should have, named as CREATE EXTENSION names them — **the whole set, not a ' +
+              'delta**. Leave it out to keep the ones it has (the same rule as `size`); `[]` means ' +
+              'none. On create they exist before the database is first ready. Adding one to a ' +
+              'running postgres is immediate, with no restart. Dropping one asks no human, because a ' +
+              'drop refuses rather than loses anything: it never CASCADEs, so a column, index, view ' +
+              'or SQL-standard function that uses the extension stops it, and it is refused while ' +
+              "the extension's own tables hold your data — pg_cron's jobs and run history, " +
+              "pg_partman's partition config, a spatial reference system you added to PostGIS. The " +
+              "answer is `extensions_failed` carrying postgres's own reason, and nothing in the call " +
+              'is changed; to really drop it, remove what is in the way first. Requirements come with them: `earthdistance` adds ' +
+              '`cube`. An unknown name is `unknown_extension`, whose hint lists every offered name. ' +
+              'pgvector is called **`vector`**. Offered: `vector` (pgvector: vector columns with HNSW ' +
+              'and IVFFlat indexes, for embeddings), `postgis` (geometry and geography types, ' +
+              'spatial indexes and functions; no raster), `pg_cron` (scheduled SQL run by the ' +
+              'database itself; jobs run in database `app`), `pg_partman` (partition management, ' +
+              "in schema `partman`), `pgaudit` (audit logging to the resource's log; set " +
+              '`pgaudit.log` to turn it on), and contrib: `pg_stat_statements` (statement ' +
+              'statistics), `pg_trgm` (trigram fuzzy text search), `pgcrypto` (hashing and ' +
+              'encryption), `uuid-ossp` (UUID generators), `citext` (case-insensitive text), ' +
+              '`hstore` (key-value column), `ltree` (hierarchical labels), `unaccent` (accent-' +
+              'removing dictionary), `fuzzystrmatch` (Levenshtein, Soundex, Metaphone), `btree_gin` ' +
+              'and `btree_gist` (GIN/GiST operator classes for ordinary types), `cube` ' +
+              '(multi-dimensional cubes), `earthdistance` (great-circle distances), `intarray` ' +
+              '(integer-array functions and indexes), `tablefunc` (crosstab), `amcheck` (index and ' +
+              'table integrity), `pg_buffercache` (what is in shared buffers). Not offered: ' +
+              'timescaledb, raster, dblink and the foreign-data wrappers, untrusted languages.',
           ),
       },
       annotations: writes('Add resource', { idempotent: true }),
