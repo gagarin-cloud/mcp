@@ -219,7 +219,11 @@ test('with no token set, the challenge path does not exist', async () => {
     await listening(
       async (base) => {
         const res = await fetch(`${base}/.well-known/openai-apps-challenge`);
-        assert.equal(res.status, 404, `token ${JSON.stringify(openaiAppsChallenge)} should not open the route`);
+        assert.equal(
+          res.status,
+          404,
+          `token ${JSON.stringify(openaiAppsChallenge)} should not open the route`,
+        );
       },
       null,
       { openaiAppsChallenge },
