@@ -177,3 +177,41 @@ test('an engine answering 5xx is not a sign-in problem either', async () => {
     assert.equal(res.status, 200);
   }, 503);
 });
+
+/*
+  OpenAI's plugin portal reads a token of its choosing at a well-known path to
+  prove the hostname is ours. Three things can be quietly wrong: the body is not
+  byte-for-byte the token (a newline, JSON, a list), the route sits behind the
+  bearer check so the portal's anonymous GET gets a 401, or an unset token
+  answers an empty 200 that verifies nothing.
+*/
+
+async function standing(cfg: Partial<Parameters<typeof createApp>[0]>, fn: (base: string) => Promise<void>) {
+  const app = createApp({ ...config, api: 'http://127.0.0.1:1', ...cfg }).listen(0);
+  await new Promise<void>((resolve) => app.once('listening', resolve));
+  try {
+    await fn(`http://127.0.0.1:${(app.address() as AddressInfo).port}`);
+  } finally {
+    await shut(app);
+  }
+}
+
+test('the OpenAI domain challenge is the exact token, as plain text, to an anonymous caller', async () => {
+  await standing({ openaiAppsChallenge: 'oai-challenge-7f3a' }, async (base) => {
+    const res = await fetch(`${base}/.well-known/openai-apps-challenge`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') ?? '', /^text\/plain/);
+    assert.equal(await res.text(), 'oai-challenge-7f3a');
+  });
+});
+
+test('with no token set, the challenge path does not exist', async () => {
+  await standing({ openaiAppsChallenge: undefined }, async (base) => {
+    const res = await fetch(`${base}/.well-known/openai-apps-challenge`);
+    assert.equal(res.status, 404);
+  });
+  await standing({ openaiAppsChallenge: '' }, async (base) => {
+    const res = await fetch(`${base}/.well-known/openai-apps-challenge`);
+    assert.equal(res.status, 404);
+  });
+});

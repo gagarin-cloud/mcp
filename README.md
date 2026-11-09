@@ -34,8 +34,13 @@ Two ways in, one implementation:
 https://mcp.gagarin.cloud/mcp
 ```
 
-Claude, ChatGPT and Claude Code prompt for sign-in when they connect: the client
-opens a browser and the human signs in with GitHub or Google. A request with no
+Claude, ChatGPT, Codex and Claude Code prompt for sign-in when they connect: the
+client opens a browser and the human signs in with GitHub or Google. In ChatGPT
+and Codex the URL arrives inside the Gagarin plugin
+([gagarin-cloud/plugin](https://github.com/gagarin-cloud/plugin)); OpenAI's
+plugin portal proves the hostname is ours by reading a token it chose at
+`/.well-known/openai-apps-challenge`, which this server serves as plain text
+from `OPENAI_APPS_CHALLENGE` and does not serve at all when that is unset. A request with no
 credential answers `401` with a `WWW-Authenticate` header pointing at
 `/.well-known/oauth-protected-resource/mcp`, which names `api.gagarin.cloud` as
 the authorization server. This server decides nothing about a token itself; the
@@ -91,7 +96,7 @@ npm run stdio            # the same tools over a pipe
 | `src/api.ts` | the whole of this server's contact with Gagarin: one request, one error envelope |
 | `src/tools.ts` | every tool — each one a path, a shape, and the rule a caller needs before using it |
 | `src/server.ts` | what a client is told on connect, and the `gagarin://guide` resource — including how memory is used and the `.gagarin.json` note that says which project a repository is |
-| `src/app.ts` | mcp.gagarin.cloud: stateless streamable HTTP, one server per request, and the OAuth protected-resource metadata |
+| `src/app.ts` | mcp.gagarin.cloud: stateless streamable HTTP, one server per request, the OAuth protected-resource metadata, and OpenAI's domain-verification path |
 | `src/http.ts` | the listener, its configuration and its drain |
 | `src/stdio.ts` | the same tools over a pipe, for developing against from a clone |
 | `src/credentials.ts` | reads the credential file `gg login` wrote; never writes one |

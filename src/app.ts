@@ -24,6 +24,10 @@ export type AppConfig = {
   /** The OAuth authorization server a client is sent to — the engine's public
    *  address, and deliberately not `api`, for the reason given above. */
   issuer: string;
+  /** The token OpenAI's plugin portal asks to see at
+   *  `/.well-known/openai-apps-challenge` to prove this hostname is ours.
+   *  Unset, the path does not exist. */
+  openaiAppsChallenge?: string;
 };
 
 /** The one scope gagarin grants. There is no destroy scope; see the engine. */
@@ -106,6 +110,25 @@ export function createApp(config: AppConfig): Express {
   app.get('/healthz', (_req, res) => {
     res.json({ ok: true, version: VERSION, api: config.api });
   });
+
+  /*
+    OpenAI's plugin portal proves that whoever submitted the plugin also controls
+    this hostname by asking for a token it shows them, as plain text, at this
+    path — once when the server is connected, and again when it rescans. The
+    token is not a secret: it says nothing a client could use, and the portal
+    chose it. It is the exact string and nothing else — not JSON, not a list,
+    no newline — because that is what the portal compares against.
+
+    Unset, the route does not exist, so a stack that never submitted anything
+    answers 404 like any other path it does not have, rather than an empty 200
+    that would "verify" nothing and confuse whoever is debugging the portal.
+  */
+  if (config.openaiAppsChallenge) {
+    const token = config.openaiAppsChallenge;
+    app.get('/.well-known/openai-apps-challenge', (_req, res) => {
+      res.type('text/plain').send(token);
+    });
+  }
 
   /*
     OAuth 2.0 Protected Resource Metadata (RFC 9728), which is how an MCP client

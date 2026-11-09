@@ -277,7 +277,13 @@ export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
 function strictly(server: McpServer) {
   return <Shape extends z.ZodRawShape>(
     name: string,
-    config: { title: string; description: string; inputSchema: Shape; annotations: Annotations },
+    config: {
+      title: string;
+      description: string;
+      inputSchema: Shape;
+      annotations: Annotations;
+      _meta?: Record<string, unknown>;
+    },
     cb: ToolCallback<z.ZodObject<Shape, 'strict'>>,
   ) => server.registerTool(name, { ...config, inputSchema: z.object(config.inputSchema).strict() }, cb);
 }
@@ -301,6 +307,11 @@ export function registerTools(server: McpServer, api: Api): void {
         'the one call that distinguishes "no credential" from "a credential that cannot deploy".',
       inputSchema: {},
       annotations: reads('Show current account'),
+      // ChatGPT's marker for "the read-only tool that says whose account this
+      // is", which is how it tells two connected Gagarin accounts apart. The
+      // answer comes from the credential the engine validated, so it is the
+      // one tool here that could carry it honestly.
+      _meta: { 'openai/profile': true },
     },
     () => attempt(() => api.call('/v1/whoami')),
   );

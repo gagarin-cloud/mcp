@@ -828,6 +828,22 @@ test('every tool carries all five annotations', async () => {
   }
 });
 
+// ChatGPT tells connected accounts apart by the one read-only tool marked as
+// the profile. It must be whoami — the answer comes from the validated
+// credential — and nothing else may claim it: two profile tools is no profile.
+test('whoami is the profile tool, and the only one', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const profile = tools.filter((t) => t._meta?.['openai/profile'] === true).map((t) => t.name);
+    assert.deepEqual(profile, ['whoami']);
+    const whoami = tools.find((t) => t.name === 'whoami')!;
+    assert.equal(whoami.annotations?.readOnlyHint, true, 'a profile tool must be read-only');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 // Nothing here reaches past gagarin. A true here would tell a client the tool
 // touches an unbounded external world, and the whole surface is one account.
 test('no tool claims an open world', async () => {
