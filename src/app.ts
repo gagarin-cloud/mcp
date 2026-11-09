@@ -122,11 +122,18 @@ export function createApp(config: AppConfig): Express {
     Unset, the route does not exist, so a stack that never submitted anything
     answers 404 like any other path it does not have, rather than an empty 200
     that would "verify" nothing and confuse whoever is debugging the portal.
+
+    Trimmed, because the value arrives through tfvars and a Deployment env, and
+    a trailing newline pasted along with it would fail an exact comparison while
+    curl's output looked right. No-store and no validator, because the portal
+    re-reads this on every rescan and a 304 or a cached body is the wrong token
+    after a resubmission — `end` rather than `send` is what skips the ETag.
   */
-  if (config.openaiAppsChallenge) {
-    const token = config.openaiAppsChallenge;
+  const challenge = config.openaiAppsChallenge?.trim();
+  if (challenge) {
     app.get('/.well-known/openai-apps-challenge', (_req, res) => {
-      res.type('text/plain').send(token);
+      res.setHeader('Cache-Control', 'no-store');
+      res.type('text/plain').end(challenge);
     });
   }
 
@@ -171,7 +178,7 @@ export function createApp(config: AppConfig): Express {
           `${issuer}; it holds no credential of its own, and every call carries yours.\n\n` +
           `Add it to an MCP client by URL:\n\n` +
           `  ${resource}\n\n` +
-          `Claude, ChatGPT and Claude Code sign in when they connect: the client\n` +
+          `Claude, ChatGPT, Codex and Claude Code sign in when they connect: the client\n` +
           `opens a browser and you sign in with GitHub or Google. Nothing to paste.\n\n` +
           `A client that cannot do that can send a credential from \`gg login\` or\n` +
           `\`gg creds create\` in a header instead:\n\n` +

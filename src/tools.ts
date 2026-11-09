@@ -277,13 +277,7 @@ export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
 function strictly(server: McpServer) {
   return <Shape extends z.ZodRawShape>(
     name: string,
-    config: {
-      title: string;
-      description: string;
-      inputSchema: Shape;
-      annotations: Annotations;
-      _meta?: Record<string, unknown>;
-    },
+    config: { title: string; description: string; inputSchema: Shape; annotations: Annotations },
     cb: ToolCallback<z.ZodObject<Shape, 'strict'>>,
   ) => server.registerTool(name, { ...config, inputSchema: z.object(config.inputSchema).strict() }, cb);
 }
@@ -307,11 +301,12 @@ export function registerTools(server: McpServer, api: Api): void {
         'the one call that distinguishes "no credential" from "a credential that cannot deploy".',
       inputSchema: {},
       annotations: reads('Show current account'),
-      // ChatGPT's marker for "the read-only tool that says whose account this
-      // is", which is how it tells two connected Gagarin accounts apart. The
-      // answer comes from the credential the engine validated, so it is the
-      // one tool here that could carry it honestly.
-      _meta: { 'openai/profile': true },
+      // Deliberately not marked `_meta["openai/profile"]`, ChatGPT's "this tool
+      // says whose account this is". That marker is a contract — an outputSchema
+      // and structuredContent with a stable opaque `id` — and the engine's
+      // /v1/whoami answers an email, which the contract says is display, not
+      // identity. ChatGPT connects several accounts without a profile tool; it
+      // just cannot label them. Add it when the engine exposes a user id.
     },
     () => attempt(() => api.call('/v1/whoami')),
   );

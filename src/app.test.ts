@@ -38,6 +38,7 @@ async function shut(server: Server): Promise<void> {
 async function listening(
   fn: (base: string, asked: { path: string; authorization?: string }[]) => Promise<void>,
   engine: number | null = 200,
+  cfg: Partial<Parameters<typeof createApp>[0]> = {},
 ) {
   const asked: { path: string; authorization?: string }[] = [];
   let api = 'http://127.0.0.1:1';
@@ -53,7 +54,7 @@ async function listening(
     });
     api = await listen(stub);
   }
-  const app = createApp({ ...config, api }).listen(0);
+  const app = createApp({ ...config, ...cfg, api }).listen(0);
   await new Promise<void>((resolve) => app.once('listening', resolve));
   try {
     await fn(`http://127.0.0.1:${(app.address() as AddressInfo).port}`, asked);
@@ -180,38 +181,48 @@ test('an engine answering 5xx is not a sign-in problem either', async () => {
 
 /*
   OpenAI's plugin portal reads a token of its choosing at a well-known path to
-  prove the hostname is ours. Three things can be quietly wrong: the body is not
+  prove the hostname is ours. Four things can be quietly wrong: the body is not
   byte-for-byte the token (a newline, JSON, a list), the route sits behind the
-  bearer check so the portal's anonymous GET gets a 401, or an unset token
-  answers an empty 200 that verifies nothing.
+  bearer check so the portal's anonymous GET gets a 401, a cache or validator
+  answers a rescan with a 304 or a stale body, or an unset token answers an
+  empty 200 that verifies nothing.
 */
 
-async function standing(cfg: Partial<Parameters<typeof createApp>[0]>, fn: (base: string) => Promise<void>) {
-  const app = createApp({ ...config, api: 'http://127.0.0.1:1', ...cfg }).listen(0);
-  await new Promise<void>((resolve) => app.once('listening', resolve));
-  try {
-    await fn(`http://127.0.0.1:${(app.address() as AddressInfo).port}`);
-  } finally {
-    await shut(app);
-  }
-}
-
 test('the OpenAI domain challenge is the exact token, as plain text, to an anonymous caller', async () => {
-  await standing({ openaiAppsChallenge: 'oai-challenge-7f3a' }, async (base) => {
-    const res = await fetch(`${base}/.well-known/openai-apps-challenge`);
-    assert.equal(res.status, 200);
-    assert.match(res.headers.get('content-type') ?? '', /^text\/plain/);
-    assert.equal(await res.text(), 'oai-challenge-7f3a');
-  });
+  await listening(
+    async (base) => {
+      const res = await fetch(`${base}/.well-known/openai-apps-challenge`);
+      assert.equal(res.status, 200);
+      assert.match(res.headers.get('content-type') ?? '', /^text\/plain/);
+      assert.equal(res.headers.get('cache-control'), 'no-store');
+      assert.equal(res.headers.get('etag'), null, 'a validator would let a rescan be answered 304');
+      assert.equal(await res.text(), 'oai-challenge-7f3a');
+    },
+    null,
+    { openaiAppsChallenge: 'oai-challenge-7f3a' },
+  );
+});
+
+test('whitespace around the token, as a tfvars paste leaves it, is not part of it', async () => {
+  await listening(
+    async (base) => {
+      const res = await fetch(`${base}/.well-known/openai-apps-challenge`);
+      assert.equal(await res.text(), 'oai-challenge-7f3a');
+    },
+    null,
+    { openaiAppsChallenge: '  oai-challenge-7f3a\n' },
+  );
 });
 
 test('with no token set, the challenge path does not exist', async () => {
-  await standing({ openaiAppsChallenge: undefined }, async (base) => {
-    const res = await fetch(`${base}/.well-known/openai-apps-challenge`);
-    assert.equal(res.status, 404);
-  });
-  await standing({ openaiAppsChallenge: '' }, async (base) => {
-    const res = await fetch(`${base}/.well-known/openai-apps-challenge`);
-    assert.equal(res.status, 404);
-  });
+  for (const openaiAppsChallenge of [undefined, '', '  \n']) {
+    await listening(
+      async (base) => {
+        const res = await fetch(`${base}/.well-known/openai-apps-challenge`);
+        assert.equal(res.status, 404, `token ${JSON.stringify(openaiAppsChallenge)} should not open the route`);
+      },
+      null,
+      { openaiAppsChallenge },
+    );
+  }
 });
