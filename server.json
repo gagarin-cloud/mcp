@@ -3,7 +3,7 @@
   "name": "cloud.gagarin/gagarin",
   "title": "Gagarin Cloud",
   "description": "Your agent ships the app. Alerts, logs, project memory and approval-gated deletes come with it.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "websiteUrl": "https://gagarin.cloud",
   "repository": {
     "url": "https://github.com/gagarin-cloud/mcp",

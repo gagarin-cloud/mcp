@@ -1712,3 +1712,138 @@ test('referrals passes an engine refusal through', async () => {
     await kit[Symbol.asyncDispose]();
   }
 });
+
+// ─── recipes ───────────────────────────────────────────────────────────────
+
+test('recipes GETs the caller\'s own recipes', async () => {
+  const kit = await connected(() => json([]));
+  try {
+    await kit.client.callTool({ name: 'recipes', arguments: {} });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/recipes');
+    assert.equal(kit.seen[0]?.method, 'GET');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('recipe GETs the latest, or one version', async () => {
+  const kit = await connected(() => json({ id: 'ab12cd34' }));
+  try {
+    await kit.client.callTool({ name: 'recipe', arguments: { recipe: 'ab12cd34' } });
+    await kit.client.callTool({ name: 'recipe', arguments: { recipe: 'ab12cd34', version: '1.2.0' } });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/recipes/ab12cd34');
+    assert.equal(kit.seen[0]?.method, 'GET');
+    assert.equal(kit.seen[1]?.url, 'https://api.example/v1/recipes/ab12cd34/versions/1.2.0');
+    assert.equal(kit.seen[1]?.method, 'GET');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('snap_recipe POSTs the snap with the options it was given', async () => {
+  const kit = await connected(() => json({ floor: '1.0.0' }));
+  try {
+    await kit.client.callTool({
+      name: 'snap_recipe',
+      arguments: { project: 'shop', name: 'shop', dry_run: true, notes: 'first' },
+    });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/snap');
+    assert.equal(kit.seen[0]?.method, 'POST');
+    assert.deepEqual(kit.seen[0]?.body, { name: 'shop', dry_run: true, notes: 'first' });
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('install_recipe POSTs the recipe and version', async () => {
+  const kit = await connected(() => json({}, 202));
+  try {
+    await kit.client.callTool({
+      name: 'install_recipe',
+      arguments: { project: 'new-shop', recipe: 'ab12cd34', version: '1.0.0' },
+    });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/new-shop/recipe');
+    assert.equal(kit.seen[0]?.method, 'POST');
+    assert.deepEqual(kit.seen[0]?.body, { recipe: 'ab12cd34', version: '1.0.0' });
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('SAFETY: install_recipe sends inputs only when given', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    await kit.client.callTool({ name: 'install_recipe', arguments: { project: 'p', recipe: 'ab12cd34' } });
+    const first = kit.seen[0]?.body as Record<string, unknown>;
+    assert.ok(!('inputs' in first), 'no inputs key on the call that started the copy');
+    assert.deepEqual(first, { recipe: 'ab12cd34' });
+
+    const inputs = { database: { DATABASE_URL: 'postgres://u:p@h/db' } };
+    await kit.client.callTool({ name: 'install_recipe', arguments: { project: 'p', recipe: 'ab12cd34', inputs } });
+    assert.deepEqual((kit.seen[1]?.body as any).inputs, inputs);
+
+    // An unknown key is refused, not dropped.
+    const refused = await kit.client.callTool({
+      name: 'install_recipe',
+      arguments: { project: 'p', recipe: 'ab12cd34', input: {} },
+    });
+    assert.equal(refused.isError, true);
+    assert.equal(kit.seen.length, 2);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('recipe_install GETs the install state', async () => {
+  const kit = await connected(() => json({ state: 'copying' }));
+  try {
+    await kit.client.callTool({ name: 'recipe_install', arguments: { project: 'p' } });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/p/recipe');
+    assert.equal(kit.seen[0]?.method, 'GET');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('remove_recipe DELETEs the recipe, or one version', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    await kit.client.callTool({ name: 'remove_recipe', arguments: { recipe: 'ab12cd34' } });
+    await kit.client.callTool({ name: 'remove_recipe', arguments: { recipe: 'ab12cd34', version: '1.1.0' } });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/recipes/ab12cd34');
+    assert.equal(kit.seen[0]?.method, 'DELETE');
+    assert.equal(kit.seen[1]?.url, 'https://api.example/v1/recipes/ab12cd34/versions/1.1.0');
+    assert.equal(kit.seen[1]?.method, 'DELETE');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('recipe_diff POSTs to the diff path and is annotated as a read', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    await kit.client.callTool({ name: 'recipe_diff', arguments: { project: 'p', version: '1.1.0' } });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/p/recipe/diff');
+    assert.equal(kit.seen[0]?.method, 'POST');
+    assert.deepEqual(kit.seen[0]?.body, { version: '1.1.0' });
+    const { tools } = await kit.client.listTools();
+    assert.equal(tools.find((t) => t.name === 'recipe_diff')?.annotations?.readOnlyHint, true);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('update_recipe POSTs the update with force and inputs', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    await kit.client.callTool({
+      name: 'update_recipe',
+      arguments: { project: 'p', version: '1.1.0', force: true, inputs: { db: { URL: 'x' } } },
+    });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/p/recipe/update');
+    assert.equal(kit.seen[0]?.method, 'POST');
+    assert.deepEqual(kit.seen[0]?.body, { version: '1.1.0', force: true, inputs: { db: { URL: 'x' } } });
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});

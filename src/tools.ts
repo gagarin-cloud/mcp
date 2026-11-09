@@ -213,13 +213,15 @@ const destroys = (title: string, o: { idempotent: boolean }): Annotations => ({
  *
  * Not a guess and not a restatement of the tool list: this is the engine's
  * `requireElevation` call sites, one per line, and it is the whole set — there
- * are five of them in the API and `destroyRow` serves two tools:
+ * are seven of them in the API and `destroyRow` serves two tools:
  *
  *   api.go deleteProject      → destroy_project
  *   api.go destroyRow         → destroy_service, destroy_resource
  *   domains.go deleteDomain   → remove_domain
  *   connections.go setNeeds   → set_deps, when the new set drops an edge
  *   ownership.go postTransfer → transfer
+ *   recipes.go deleteRecipe   → remove_recipe
+ *   recipe_install.go updateRecipe → update_recipe, when the patch removes something
  *
  * Every one of these must be `destructiveHint: true`, and tools.test.ts asserts
  * it against this table rather than against a list of its own. Two of them read
@@ -235,8 +237,10 @@ export const APPROVAL_REQUIRED: ReadonlySet<string> = new Set([
   'destroy_resource',
   'destroy_service',
   'remove_domain',
+  'remove_recipe',
   'set_deps',
   'transfer',
+  'update_recipe',
 ]);
 
 /**
@@ -1837,5 +1841,199 @@ export function registerTools(server: McpServer, api: Api): void {
       annotations: destroys('Destroy project', { idempotent: true }),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}`, { method: 'DELETE' })),
+  );
+  // ─── recipes ─────────────────────────────────────────────────────────────
+
+  const recipeInputs = z
+    .record(z.string(), z.record(z.string(), z.string()))
+    .describe(
+      'one object per input the recipe declares, keyed by the input name, each holding that ' +
+        "input's variables by name. Values go into external resources and are stored nowhere else",
+    );
+
+  tool(
+    'recipes',
+    {
+      title: 'List my recipes',
+      description:
+        'Your own recipes, the ones you published with `snap_recipe`: id, name, latest version, ' +
+        'how many versions there are, and whether a snap is still copying its images.',
+      inputSchema: {},
+      annotations: reads('List my recipes'),
+    },
+    () => attempt(() => api.call('/v1/recipes')),
+  );
+
+  tool(
+    'recipe',
+    {
+      title: 'Show recipe',
+      description:
+        'A recipe is a published snapshot of a project that anyone with its id can deploy into a ' +
+        'NEW project of their own. The answer carries the manifest, the inputs the deployer must ' +
+        'bring (names only, never values) and the monthly cost. Its deploy URL is ' +
+        '`https://my.gagarin.cloud/deploy/<id>`. Public: any id will answer, yours or not. ' +
+        'Omit `version` for the latest.',
+      inputSchema: {
+        recipe: z.string().describe('recipe id'),
+        version: z.string().optional().describe('version, such as 1.2.0; the latest when omitted'),
+      },
+      annotations: reads('Show recipe'),
+    },
+    ({ recipe, version }) =>
+      attempt(() =>
+        api.call(
+          version === undefined
+            ? `/v1/recipes/${seg(recipe)}`
+            : `/v1/recipes/${seg(recipe)}/versions/${seg(version)}`,
+        ),
+      ),
+  );
+
+  tool(
+    'snap_recipe',
+    {
+      title: 'Publish project as recipe',
+      description:
+        'Snapshot a project as a recipe others can deploy. Owner only. A recipe never carries ' +
+        "secrets: a service's env must hold plain configuration only, and anything secret must be " +
+        'an external resource, which becomes an input the deployer supplies. Otherwise expect ' +
+        '`env_looks_secret`, naming the variables. Run with `dry_run` first and show your human ' +
+        'the floor and the changes before the real snap. The version floor: removals, renames and ' +
+        'immutable changes need a major; additions or a bigger bill need at least a minor; ' +
+        'anything else is free. Omit `version` to take the floor. The real call answers 202 while ' +
+        'images are copied; `recipes` shows when it is done.',
+      inputSchema: {
+        project,
+        name: z.string().optional().describe('recipe name, unique within your account'),
+        version: z.string().optional().describe('version to publish; the floor when omitted'),
+        source_url: z.string().optional().describe('where the source lives, if it is public; metadata only'),
+        notes: z.string().optional().describe('what this version changes, for people deploying it'),
+        dry_run: z.boolean().optional().describe('report the floor and the changes without publishing'),
+      },
+      annotations: writes('Publish project as recipe', { idempotent: false }),
+    },
+    ({ project, ...body }) =>
+      attempt(() => api.call(`/v1/projects/${seg(project)}/snap`, { method: 'POST', body })),
+  );
+
+  tool(
+    'install_recipe',
+    {
+      title: 'Install recipe',
+      description:
+        'Deploy a recipe into a project. Create the project first with `create_project`: a recipe ' +
+        'only goes into a new, empty project. Call once to start the copy (202, state `copying`); ' +
+        'poll `recipe_install` until the state is `copied`; then call again WITH `inputs` (one ' +
+        'object per declared input, keys are its variable names) to install. The values go into ' +
+        'external resources and are never stored anywhere else. Errors to branch on: ' +
+        '`project_not_empty`, `inputs_missing`, `payment_required`.',
+      inputSchema: {
+        project,
+        recipe: z.string().describe('recipe id'),
+        version: z.string().optional().describe('version to install; the latest when omitted'),
+        inputs: recipeInputs.optional(),
+      },
+      annotations: writes('Install recipe', { idempotent: true }),
+    },
+    ({ project, recipe, version, inputs }) =>
+      attempt(() =>
+        api.call(`/v1/projects/${seg(project)}/recipe`, {
+          method: 'POST',
+          body: {
+            recipe,
+            ...(version !== undefined && { version }),
+            ...(inputs !== undefined && { inputs }),
+          },
+        }),
+      ),
+  );
+
+  tool(
+    'recipe_install',
+    {
+      title: 'Show recipe install',
+      description:
+        'Where a recipe install stands in a project: the recipe, its state and any error, the ' +
+        'inputs still required, `installed_version` against `latest_version`, and ' +
+        '`update_available`. Poll this after `install_recipe` until the state is `copied`.',
+      inputSchema: { project },
+      annotations: reads('Show recipe install'),
+    },
+    ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/recipe`)),
+  );
+
+  tool(
+    'remove_recipe',
+    {
+      title: 'Remove recipe',
+      description:
+        'Withdraw one version of a recipe, or the whole recipe when `version` is omitted. New ' +
+        'installs stop at once; projects that already installed it keep running its frozen ' +
+        'manifest. Expect `approval_required`: the call completes only when the account owner ' +
+        'clicks the button emailed to them, so explain the pause to your user instead of retrying.',
+      inputSchema: {
+        recipe: z.string().describe('recipe id'),
+        version: z.string().optional().describe('version to withdraw; the whole recipe when omitted'),
+      },
+      annotations: destroys('Remove recipe', { idempotent: true }),
+    },
+    ({ recipe, version }) =>
+      attempt(() =>
+        api.call(
+          version === undefined
+            ? `/v1/recipes/${seg(recipe)}`
+            : `/v1/recipes/${seg(recipe)}/versions/${seg(version)}`,
+          { method: 'DELETE' },
+        ),
+      ),
+  );
+
+  tool(
+    'recipe_diff',
+    {
+      title: 'Diff recipe update',
+      description:
+        'What updating a project to a newer recipe version would do, without doing it: the ' +
+        'changes, any conflicts with what the deployer changed, what would need approval, and the ' +
+        'monthly cost before and after. Env values are shown as `changed`, never in full. A POST ' +
+        'because it takes a body; it writes nothing.',
+      inputSchema: {
+        project,
+        version: z.string().optional().describe('version to compare against; the latest when omitted'),
+      },
+      annotations: reads('Diff recipe update'),
+    },
+    ({ project, version }) =>
+      attempt(() =>
+        api.call(`/v1/projects/${seg(project)}/recipe/diff`, {
+          method: 'POST',
+          body: version === undefined ? {} : { version },
+        }),
+      ),
+  );
+
+  tool(
+    'update_recipe',
+    {
+      title: 'Update recipe',
+      description:
+        'Move a project to a newer version of its recipe. Run `recipe_diff` first and show your ' +
+        'human. Two steps like `install_recipe` when new images must be copied: the first call ' +
+        'starts the copy, poll `recipe_install`, then call again (with `inputs` for any new ' +
+        'input). `update_conflict` means the deployer changed something the recipe also changes: ' +
+        'show the diff and ask before passing `force`. Expect `approval_required` when the update ' +
+        'removes something: the call completes only when the account owner clicks the button ' +
+        'emailed to them, so explain the pause to your user instead of retrying.',
+      inputSchema: {
+        project,
+        version: z.string().optional().describe('version to update to; the latest when omitted'),
+        force: z.boolean().optional().describe("take the recipe's side on conflicts; only after your human agrees"),
+        inputs: recipeInputs.optional(),
+      },
+      annotations: destroys('Update recipe', { idempotent: false }),
+    },
+    ({ project, ...body }) =>
+      attempt(() => api.call(`/v1/projects/${seg(project)}/recipe/update`, { method: 'POST', body })),
   );
 }
