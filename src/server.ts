@@ -270,6 +270,23 @@ and read as a crash loop while the meter ran.
 \`rollback\` on a job re-runs an older image under a new revision. Only ask for
 one if a second run is safe.
 
+## Recipes
+
+A recipe is a published snapshot of a project that anyone with its id can deploy
+into a new project of their own (\`https://my.gagarin.cloud/deploy/<id>\`).
+
+- **Publishing** is \`snap_recipe\`, owner only; run it with \`dry_run\` first and
+  show your human the version floor and the changes. A recipe never carries
+  secrets: a service's env holds plain configuration only, and anything secret is
+  an external resource, which becomes an input the deployer supplies.
+  \`env_looks_secret\` names the variables that broke this.
+- **Installing** goes into a NEW, empty project only: \`create_project\`, then
+  \`install_recipe\` to start the copy, \`recipe_install\` until the state is
+  \`copied\`, then \`install_recipe\` again with \`inputs\`. Inputs go on that last
+  call only; the values land in external resources and nowhere else.
+- **Updating** is \`recipe_diff\` then \`update_recipe\`. \`update_conflict\` means
+  the deployer changed something the recipe also changes: ask before \`force\`.
+
 ## Project memory
 
 Every project carries a memory: small, durable facts about its codebase that an
