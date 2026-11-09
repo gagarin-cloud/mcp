@@ -24,6 +24,10 @@ export type AppConfig = {
   /** The OAuth authorization server a client is sent to — the engine's public
    *  address, and deliberately not `api`, for the reason given above. */
   issuer: string;
+  /** The token OpenAI's plugin portal asks to see at
+   *  `/.well-known/openai-apps-challenge` to prove this hostname is ours.
+   *  Unset, the path does not exist. */
+  openaiAppsChallenge?: string;
 };
 
 /** The one scope gagarin grants. There is no destroy scope; see the engine. */
@@ -108,6 +112,32 @@ export function createApp(config: AppConfig): Express {
   });
 
   /*
+    OpenAI's plugin portal proves that whoever submitted the plugin also controls
+    this hostname by asking for a token it shows them, as plain text, at this
+    path — once when the server is connected, and again when it rescans. The
+    token is not a secret: it says nothing a client could use, and the portal
+    chose it. It is the exact string and nothing else — not JSON, not a list,
+    no newline — because that is what the portal compares against.
+
+    Unset, the route does not exist, so a stack that never submitted anything
+    answers 404 like any other path it does not have, rather than an empty 200
+    that would "verify" nothing and confuse whoever is debugging the portal.
+
+    Trimmed, because the value arrives through tfvars and a Deployment env, and
+    a trailing newline pasted along with it would fail an exact comparison while
+    curl's output looked right. No-store and no validator, because the portal
+    re-reads this on every rescan and a 304 or a cached body is the wrong token
+    after a resubmission — `end` rather than `send` is what skips the ETag.
+  */
+  const challenge = config.openaiAppsChallenge?.trim();
+  if (challenge) {
+    app.get('/.well-known/openai-apps-challenge', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      res.type('text/plain').end(challenge);
+    });
+  }
+
+  /*
     OAuth 2.0 Protected Resource Metadata (RFC 9728), which is how an MCP client
     that got a 401 finds out where to sign in.
 
@@ -148,7 +178,7 @@ export function createApp(config: AppConfig): Express {
           `${issuer}; it holds no credential of its own, and every call carries yours.\n\n` +
           `Add it to an MCP client by URL:\n\n` +
           `  ${resource}\n\n` +
-          `Claude, ChatGPT and Claude Code sign in when they connect: the client\n` +
+          `Claude, ChatGPT, Codex and Claude Code sign in when they connect: the client\n` +
           `opens a browser and you sign in with GitHub or Google. Nothing to paste.\n\n` +
           `A client that cannot do that can send a credential from \`gg login\` or\n` +
           `\`gg creds create\` in a header instead:\n\n` +

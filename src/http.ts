@@ -47,6 +47,10 @@ const app = createApp({
   // against a development engine.
   origin: process.env.GAGARIN_MCP_ORIGIN || 'https://mcp.gagarin.cloud',
   issuer: process.env.GAGARIN_ISSUER || DEFAULT_API,
+  // The domain-verification token OpenAI's plugin portal hands out when the
+  // Gagarin plugin is submitted; infra sets it from tofu's openai_apps_challenge.
+  // Empty means the route does not exist. See app.ts.
+  openaiAppsChallenge: process.env.OPENAI_APPS_CHALLENGE || undefined,
 });
 
 const httpServer = app.listen(PORT, () => {

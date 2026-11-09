@@ -301,6 +301,12 @@ export function registerTools(server: McpServer, api: Api): void {
         'the one call that distinguishes "no credential" from "a credential that cannot deploy".',
       inputSchema: {},
       annotations: reads('Show current account'),
+      // Deliberately not marked `_meta["openai/profile"]`, ChatGPT's "this tool
+      // says whose account this is". That marker is a contract — an outputSchema
+      // and structuredContent with a stable opaque `id` — and the engine's
+      // /v1/whoami answers an email, which the contract says is display, not
+      // identity. ChatGPT connects several accounts without a profile tool; it
+      // just cannot label them. Add it when the engine exposes a user id.
     },
     () => attempt(() => api.call('/v1/whoami')),
   );
