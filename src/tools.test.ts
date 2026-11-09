@@ -1715,7 +1715,7 @@ test('referrals passes an engine refusal through', async () => {
 
 // ─── recipes ───────────────────────────────────────────────────────────────
 
-test('recipes GETs the caller\'s own recipes', async () => {
+test("recipes GETs the caller's own recipes", async () => {
   const kit = await connected(() => json([]));
   try {
     await kit.client.callTool({ name: 'recipes', arguments: {} });
@@ -1779,7 +1779,10 @@ test('install_recipe forwards inputs verbatim and only when given', async () => 
     assert.deepEqual(first, { recipe: 'ab12cd34' });
 
     const inputs = { database: { DATABASE_URL: 'postgres://u:p@h/db' } };
-    await kit.client.callTool({ name: 'install_recipe', arguments: { project: 'p', recipe: 'ab12cd34', inputs } });
+    await kit.client.callTool({
+      name: 'install_recipe',
+      arguments: { project: 'p', recipe: 'ab12cd34', inputs },
+    });
     assert.deepEqual((kit.seen[1]?.body as any).inputs, inputs);
 
     // An unknown key is refused, not dropped.

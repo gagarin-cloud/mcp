@@ -1890,8 +1890,7 @@ export function registerTools(server: McpServer, api: Api): void {
       },
       annotations: reads('Show recipe'),
     },
-    ({ recipe, version }) =>
-      attempt(() => api.call(recipePath(recipe, version))),
+    ({ recipe, version }) => attempt(() => api.call(recipePath(recipe, version))),
   );
 
   tool(
@@ -1981,8 +1980,7 @@ export function registerTools(server: McpServer, api: Api): void {
       },
       annotations: destroys('Remove recipe', { idempotent: true }),
     },
-    ({ recipe, version }) =>
-      attempt(() => api.call(recipePath(recipe, version), { method: 'DELETE' })),
+    ({ recipe, version }) => attempt(() => api.call(recipePath(recipe, version), { method: 'DELETE' })),
   );
 
   tool(
@@ -1998,7 +1996,10 @@ export function registerTools(server: McpServer, api: Api): void {
       inputSchema: {
         project,
         version: z.string().optional().describe('version to compare against; the latest when omitted'),
-        force: z.boolean().optional().describe('plan as `update_recipe` with `force` would: taking the recipe\'s side on conflicts'),
+        force: z
+          .boolean()
+          .optional()
+          .describe("plan as `update_recipe` with `force` would: taking the recipe's side on conflicts"),
       },
       annotations: reads('Diff recipe update'),
     },
@@ -2021,7 +2022,10 @@ export function registerTools(server: McpServer, api: Api): void {
       inputSchema: {
         project,
         version: z.string().optional().describe('version to update to; the latest when omitted'),
-        force: z.boolean().optional().describe("take the recipe's side on conflicts; only after your human agrees"),
+        force: z
+          .boolean()
+          .optional()
+          .describe("take the recipe's side on conflicts; only after your human agrees"),
         inputs: recipeInputs.optional(),
       },
       annotations: destroys('Update recipe', { idempotent: false }),
