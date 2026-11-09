@@ -6,7 +6,7 @@
   no logic here beyond that: no caching, no retries, no client-side validation of
   things the engine validates, and no second opinion about what any answer means.
 
-  Three deliberate absences, because a tool that half works is worse than one
+  Four deliberate absences, because a tool that half works is worse than one
   that does not exist:
 
    - **No build and no push.** `gg ship`, `gg build`, `gg push` and
@@ -22,6 +22,10 @@
      its refusals name them. A zod enum here would be a second list in a second
      repository, wrong on the day a type is added — which this codebase has
      already done once, in `gg`, about this exact family of values.
+   - **No recipe source URL editor.** The engine's `PATCH /v1/recipes/:recipe`
+     sets `source_url`, and nothing here calls it: `snap_recipe` takes a
+     `source_url` and the next snap sets it, and `gg` has no subcommand for it
+     either.
 */
 
 import type { McpServer, ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -213,7 +217,7 @@ const destroys = (title: string, o: { idempotent: boolean }): Annotations => ({
  *
  * Not a guess and not a restatement of the tool list: this is the engine's
  * `requireElevation` call sites, one per line, and it is the whole set — there
- * are seven of them in the API and `destroyRow` serves two tools:
+ * are eight of them in the API and `destroyRow` serves two tools:
  *
  *   api.go deleteProject      → destroy_project
  *   api.go destroyRow         → destroy_service, destroy_resource
@@ -221,6 +225,7 @@ const destroys = (title: string, o: { idempotent: boolean }): Annotations => ({
  *   connections.go setNeeds   → set_deps, when the new set drops an edge
  *   ownership.go postTransfer → transfer
  *   recipes.go deleteRecipe   → remove_recipe
+ *   recipes.go deleteRecipeVersion → remove_recipe, with `version`
  *   recipe_install.go updateRecipe → update_recipe, when the patch removes something
  *
  * Every one of these must be `destructiveHint: true`, and tools.test.ts asserts
@@ -1851,6 +1856,11 @@ export function registerTools(server: McpServer, api: Api): void {
         "input's variables by name. Values go into external resources and are stored nowhere else",
     );
 
+  const recipePath = (recipe: string, version?: string): string =>
+    version === undefined
+      ? `/v1/recipes/${seg(recipe)}`
+      : `/v1/recipes/${seg(recipe)}/versions/${seg(version)}`;
+
   tool(
     'recipes',
     {
@@ -1881,13 +1891,7 @@ export function registerTools(server: McpServer, api: Api): void {
       annotations: reads('Show recipe'),
     },
     ({ recipe, version }) =>
-      attempt(() =>
-        api.call(
-          version === undefined
-            ? `/v1/recipes/${seg(recipe)}`
-            : `/v1/recipes/${seg(recipe)}/versions/${seg(version)}`,
-        ),
-      ),
+      attempt(() => api.call(recipePath(recipe, version))),
   );
 
   tool(
@@ -1898,7 +1902,11 @@ export function registerTools(server: McpServer, api: Api): void {
         'Snapshot a project as a recipe others can deploy. Owner only. A recipe never carries ' +
         "secrets: a service's env must hold plain configuration only, and anything secret must be " +
         'an external resource, which becomes an input the deployer supplies. Otherwise expect ' +
-        '`env_looks_secret`, naming the variables. Run with `dry_run` first and show your human ' +
+        '`env_looks_secret`, naming the variables. Other refusals to branch on: ' +
+        '`recipe_unsupported` (a shape that cannot be snapped, such as an s3 resource), ' +
+        '`nothing_to_snap`, `image_unpinned` (redeploy so the image is pinned by digest), ' +
+        '`recipe_limit` and `version_limit` (you are at your cap), `version_below_floor` (below the ' +
+        'floor; take the floor or go higher) and `nothing_changed` (identical to the latest version). Run with `dry_run` first and show your human ' +
         'the floor and the changes before the real snap. The version floor: removals, renames and ' +
         'immutable changes need a major; additions or a bigger bill need at least a minor; ' +
         'anything else is free. Omit `version` to take the floor. The real call answers 202 while ' +
@@ -1927,7 +1935,10 @@ export function registerTools(server: McpServer, api: Api): void {
         'poll `recipe_install` until the state is `copied`; then call again WITH `inputs` (one ' +
         'object per declared input, keys are its variable names) to install. The values go into ' +
         'external resources and are never stored anywhere else. Errors to branch on: ' +
-        '`project_not_empty`, `inputs_missing`, `payment_required`.',
+        '`project_not_empty`, `inputs_missing`, `payment_required`, `project_has_recipe` (409: the ' +
+        'project already has a recipe installed; use `update_recipe` to move it), ' +
+        '`recipe_install_in_progress` (409: a copy or install is already running; poll ' +
+        '`recipe_install` instead of calling again).',
       inputSchema: {
         project,
         recipe: z.string().describe('recipe id'),
@@ -1936,17 +1947,8 @@ export function registerTools(server: McpServer, api: Api): void {
       },
       annotations: writes('Install recipe', { idempotent: true }),
     },
-    ({ project, recipe, version, inputs }) =>
-      attempt(() =>
-        api.call(`/v1/projects/${seg(project)}/recipe`, {
-          method: 'POST',
-          body: {
-            recipe,
-            ...(version !== undefined && { version }),
-            ...(inputs !== undefined && { inputs }),
-          },
-        }),
-      ),
+    ({ project, ...body }) =>
+      attempt(() => api.call(`/v1/projects/${seg(project)}/recipe`, { method: 'POST', body })),
   );
 
   tool(
@@ -1956,7 +1958,8 @@ export function registerTools(server: McpServer, api: Api): void {
       description:
         'Where a recipe install stands in a project: the recipe, its state and any error, the ' +
         'inputs still required, `installed_version` against `latest_version`, and ' +
-        '`update_available`. Poll this after `install_recipe` until the state is `copied`.',
+        '`update_available`. Poll this after `install_recipe` until the state is `copied`. A project ' +
+        'that was not made from a recipe answers 404 `no_recipe`.',
       inputSchema: { project },
       annotations: reads('Show recipe install'),
     },
@@ -1979,14 +1982,7 @@ export function registerTools(server: McpServer, api: Api): void {
       annotations: destroys('Remove recipe', { idempotent: true }),
     },
     ({ recipe, version }) =>
-      attempt(() =>
-        api.call(
-          version === undefined
-            ? `/v1/recipes/${seg(recipe)}`
-            : `/v1/recipes/${seg(recipe)}/versions/${seg(version)}`,
-          { method: 'DELETE' },
-        ),
-      ),
+      attempt(() => api.call(recipePath(recipe, version), { method: 'DELETE' })),
   );
 
   tool(
@@ -1996,21 +1992,18 @@ export function registerTools(server: McpServer, api: Api): void {
       description:
         'What updating a project to a newer recipe version would do, without doing it: the ' +
         'changes, any conflicts with what the deployer changed, what would need approval, and the ' +
-        'monthly cost before and after. Env values are shown as `changed`, never in full. A POST ' +
+        'monthly cost before and after. Env values are shown as `changed`, never in full. Pass ' +
+        '`force` to preview the update `update_recipe` would make with `force`. A POST ' +
         'because it takes a body; it writes nothing.',
       inputSchema: {
         project,
         version: z.string().optional().describe('version to compare against; the latest when omitted'),
+        force: z.boolean().optional().describe('plan as `update_recipe` with `force` would: taking the recipe\'s side on conflicts'),
       },
       annotations: reads('Diff recipe update'),
     },
-    ({ project, version }) =>
-      attempt(() =>
-        api.call(`/v1/projects/${seg(project)}/recipe/diff`, {
-          method: 'POST',
-          body: version === undefined ? {} : { version },
-        }),
-      ),
+    ({ project, ...body }) =>
+      attempt(() => api.call(`/v1/projects/${seg(project)}/recipe/diff`, { method: 'POST', body })),
   );
 
   tool(

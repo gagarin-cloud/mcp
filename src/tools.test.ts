@@ -1770,7 +1770,7 @@ test('install_recipe POSTs the recipe and version', async () => {
   }
 });
 
-test('SAFETY: install_recipe sends inputs only when given', async () => {
+test('install_recipe forwards inputs verbatim and only when given', async () => {
   const kit = await connected(() => json({}));
   try {
     await kit.client.callTool({ name: 'install_recipe', arguments: { project: 'p', recipe: 'ab12cd34' } });
