@@ -16,7 +16,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { Api } from './api.js';
 import { createServer } from './server.js';
-import { APPROVAL_REQUIRED, DESTRUCTIVE_WITHOUT_APPROVAL } from './tools.js';
+import { APPROVAL_REQUIRED, DESTRUCTIVE_WITHOUT_APPROVAL, OPEN_WORLD } from './tools.js';
 import { TOOLS_SNAPSHOT, type SnapshotRow } from './tools.snapshot.js';
 
 type Seen = { url: string; method: string; body: unknown; headers: Record<string, string> };
@@ -830,12 +830,35 @@ test('every tool carries all five annotations', async () => {
 
 // Nothing here reaches past gagarin. A true here would tell a client the tool
 // touches an unbounded external world, and the whole surface is one account.
-test('no tool claims an open world', async () => {
+// Taken from OPEN_WORLD rather than written again here, so a tool that starts
+// reaching past the account is added to the list that says why, not only here.
+test('the open-world tools are exactly OPEN_WORLD', async () => {
   const kit = await connected(() => json({}));
   try {
     const { tools } = await kit.client.listTools();
     const open = tools.filter((t) => t.annotations?.openWorldHint !== false).map((t) => t.name);
-    assert.deepEqual(open, [], `these claim an open world: ${open.join(', ')}`);
+    assert.deepEqual(open.sort(), [...OPEN_WORLD].sort());
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// A read that writes is not a read. The memory tools that strengthen links as
+// they are used say so in their descriptions, and a client that takes
+// readOnlyHint at its word would call them as if nothing changed.
+test('no tool that strengthens what it reads claims to be read-only', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const strengthening = tools.filter((t) => /\bstronger\b|\bstrengthens\b/.test(t.description ?? ''));
+    assert.deepEqual(
+      strengthening.map((t) => t.name).sort(),
+      ['memory_get', 'memory_related'],
+      'the set of tools that strengthen links changed; check their readOnlyHint',
+    );
+    for (const t of strengthening) {
+      assert.equal(t.annotations?.readOnlyHint, false, `${t.name} writes as it reads`);
+    }
   } finally {
     await kit[Symbol.asyncDispose]();
   }
