@@ -180,10 +180,13 @@ function qs(params: Record<string, string | number | boolean | readonly string[]
     `READS_THAT_WRITE` below are writes, however much they look like reads.
   - `destructiveHint` for anything that replaces state or takes away state or
     access to it, even when the opposite call would put it back: a deploy
-    replaces what is running, `unshare` takes a person's access, `remember`
-    with `supersedes` or `key` retires the memory it replaces. `writes` is
+    replaces what is running, `unshare` takes a person's access. `writes` is
     kept for calls that only add. A hint is static and covers the call's worst
     case, so a tool is destructive when any of its arguments make it so.
+    Memory is the exception: it is the agents' own notebook, written on every
+    session, and nothing in it is lost — a superseded or archived memory is
+    kept and still readable, and a link can be made again. Confirming each
+    note would teach people to stop keeping them.
   - `openWorldHint` for a call that reaches past the caller's account — puts
     something on the public internet or before other accounts, or takes in
     what another account published. `OPEN_WORLD` below is the list, and each
@@ -292,16 +295,6 @@ export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
   'untransfer',
   // Stops the caller being told when a service goes down.
   'alerts_off',
-  // Rewrite memory: `remember` can supersede or overwrite a key, `memory_link`
-  // replaces the note on a link that exists, `memory_update` replaces fields,
-  // `memory_unlink` drops a link the next briefing used. A plain `remember`
-  // only adds, and a client that confirms destructive calls will ask before it
-  // anyway: the hint cannot see the arguments, and the directory reads
-  // `remember` by its worst case.
-  'remember',
-  'memory_link',
-  'memory_update',
-  'memory_unlink',
   // Above.
   'publish_resource',
   'revoke_credential',
@@ -1735,7 +1728,7 @@ export function registerTools(server: McpServer, api: Api): void {
         force: z.boolean().optional().describe('save even beside a near-duplicate. Almost never right.'),
         source: z.string().optional().describe('who or what wrote it, e.g. the agent and session'),
       },
-      annotations: destroys('Save a memory', { idempotent: false }),
+      annotations: writes('Save a memory', { idempotent: false }),
     },
     ({ project, ...body }) =>
       attempt(async () =>
@@ -1782,7 +1775,7 @@ export function registerTools(server: McpServer, api: Api): void {
             'it is probably wrong: marks it ⚠ and lowers its rank until it is confirmed, edited or archived',
           ),
       },
-      annotations: destroys('Update a memory', { idempotent: true }),
+      annotations: writes('Update a memory', { idempotent: true }),
     },
     ({ project, id, ...body }) =>
       attempt(async () => {
@@ -1837,7 +1830,7 @@ export function registerTools(server: McpServer, api: Api): void {
         to: z.array(memoryId).describe('the memories to link it with'),
         note: z.string().optional().describe('why they relate, one short line. Not encrypted.'),
       },
-      annotations: destroys('Link memories', { idempotent: true }),
+      annotations: writes('Link memories', { idempotent: true }),
     },
     ({ project, id, ...body }) =>
       attempt(async () =>
@@ -1853,7 +1846,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'Removes the link between two memories. Undirected, so the order of the two does not ' +
         'matter; removing a link that is not there changes nothing. Needs editor.',
       inputSchema: { project, id: memoryId, other: memoryId.describe('the memory at the other end') },
-      annotations: destroys('Unlink memories', { idempotent: true }),
+      annotations: writes('Unlink memories', { idempotent: true }),
     },
     ({ project, id, other }) =>
       attempt(async () =>
