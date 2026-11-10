@@ -16,7 +16,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { Api } from './api.js';
 import { createServer } from './server.js';
-import { APPROVAL_REQUIRED, DESTRUCTIVE_WITHOUT_APPROVAL } from './tools.js';
+import { APPROVAL_REQUIRED, DESTRUCTIVE_WITHOUT_APPROVAL, OPEN_WORLD, READS_THAT_WRITE } from './tools.js';
 import { TOOLS_SNAPSHOT, type SnapshotRow } from './tools.snapshot.js';
 
 type Seen = { url: string; method: string; body: unknown; headers: Record<string, string> };
@@ -790,10 +790,10 @@ test('a transfer with no new name asks for no rename', async () => {
   Annotations.
 
   These five hints are how a client decides whether to stop and ask a human
-  before calling something, so a wrong one is not a cosmetic bug: `deploy`
-  marked destructive makes an agent ask permission on every ship, and a
-  `set_deps` marked safe lets it withdraw an edge without anybody being warned
-  that the call is about to stop dead and mail the owner.
+  before calling something, so a wrong one is not a cosmetic bug: a `set_deps`
+  marked safe lets an agent withdraw an edge without anybody being warned that
+  the call is about to stop dead and mail the owner, and a read that writes
+  would be called as if nothing changed.
 
   The spec's defaults are the reason all five are asserted rather than the
   interesting ones: `destructiveHint` and `openWorldHint` default TRUE and
@@ -828,14 +828,32 @@ test('every tool carries all five annotations', async () => {
   }
 });
 
-// Nothing here reaches past gagarin. A true here would tell a client the tool
-// touches an unbounded external world, and the whole surface is one account.
-test('no tool claims an open world', async () => {
+// Taken from OPEN_WORLD rather than written again here, so a tool that starts
+// reaching past the account is added to the list that says why, not only here.
+test('the open-world tools are exactly OPEN_WORLD', async () => {
   const kit = await connected(() => json({}));
   try {
     const { tools } = await kit.client.listTools();
     const open = tools.filter((t) => t.annotations?.openWorldHint !== false).map((t) => t.name);
-    assert.deepEqual(open, [], `these claim an open world: ${open.join(', ')}`);
+    assert.deepEqual(open.sort(), [...OPEN_WORLD].sort());
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+// A read that writes is not a read: a client that takes readOnlyHint at its
+// word would call these as if nothing changed. The set is the engine's own
+// recordRead call sites, named in READS_THAT_WRITE.
+test('no tool that records a read claims to be read-only', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    for (const name of READS_THAT_WRITE) {
+      const tool = tools.find((t) => t.name === name);
+      assert.ok(tool, `${name} is in READS_THAT_WRITE but is not a tool`);
+      assert.equal(tool.annotations?.readOnlyHint, false, `${name} writes as it reads`);
+      assert.equal(tool.annotations?.idempotentHint, false, `${name} changes ranking on every call`);
+    }
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -851,8 +869,8 @@ test('no tool claims an open world', async () => {
   which is the engine's own `requireElevation` call sites, rather than from a
   list written again here.
 
-  It is a subset rather than an equality because two tools are destructive
-  without asking anybody: see DESTRUCTIVE_WITHOUT_APPROVAL. Those two are named,
+  The destructive tools are those plus the ones that replace or take away
+  without asking anybody: see DESTRUCTIVE_WITHOUT_APPROVAL. Those are named,
   so destructive-and-silent cannot be added to by accident — a new one fails
   here until somebody puts it in that set on purpose.
 */
@@ -884,7 +902,7 @@ test('the tools that need a human are exactly the destructive ones', async () =>
 
 // The pause, in the words an agent reads. Only the tools that really wait for a
 // click say so — promising an email that never arrives would be worse than
-// saying nothing, which is why the two silent destroyers are excluded.
+// saying nothing, which is why the silent destroyers are excluded.
 test('every tool that waits for a human says so in its description', async () => {
   const kit = await connected(() => json({}));
   try {
