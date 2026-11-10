@@ -169,23 +169,25 @@ function qs(params: Record<string, string | number | boolean | readonly string[]
   are the wrong answer here in three places at once: `destructiveHint` defaults
   **true**, `openWorldHint` defaults **true**, and `idempotentHint` defaults
   false. A tool that leaves them out is therefore presumed to be an open-world
-  destroyer — which would make an agent stop and ask on every `deploy`, and
-  that is the product.
+  destroyer, and a client that confirms before a destructive call would stop
+  on every list and read.
 
   The rules are the Connectors Directory's, which are stricter than "needs a
   human" and stricter than "cannot be undone":
 
-  - `readOnlyHint` only for a call that changes nothing at all. Reading memory
-    strengthens the links it walks, so `memory_get` and `memory_related` are
-    writes, however much they look like reads.
+  - `readOnlyHint` only for a call that changes nothing at all. Searching and
+    reading memory feeds its ranking and strengthens the links it walks, so
+    `READS_THAT_WRITE` below are writes, however much they look like reads.
   - `destructiveHint` for anything that replaces state or takes away state or
     access to it, even when the opposite call would put it back: a deploy
     replaces what is running, `unshare` takes a person's access, `remember`
     with `supersedes` or `key` retires the memory it replaces. `writes` is
-    kept for calls that only add.
+    kept for calls that only add. A hint is static and covers the call's worst
+    case, so a tool is destructive when any of its arguments make it so.
   - `openWorldHint` for a call that reaches past the caller's account — puts
-    something on the public internet, or takes in what another account
-    published. `OPEN_WORLD` below is the list, and each one says which way.
+    something on the public internet or before other accounts, or takes in
+    what another account published. `OPEN_WORLD` below is the list, and each
+    one says which way.
 */
 
 type Annotations = {
@@ -197,12 +199,12 @@ type Annotations = {
 };
 
 /** A read. Changes nothing, so asking it twice is asking it once. */
-const reads = (title: string): Annotations => ({
+const reads = (title: string, o: { openWorld?: boolean } = {}): Annotations => ({
   title,
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
-  openWorldHint: false,
+  openWorldHint: o.openWorld ?? false,
 });
 
 type WriteOptions = { idempotent: boolean; openWorld?: boolean };
@@ -278,7 +280,9 @@ export const APPROVAL_REQUIRED: ReadonlySet<string> = new Set([
  * through `requireElevation` — the editor role is the whole of the gate.
  */
 export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
-  // Replace what is running: the environment, the image, or both.
+  // Replace what is running: the environment, the image, or both; or a
+  // resource's size and its whole set of extensions.
+  'add_resource',
   'deploy',
   'rollback',
   // Give or take a person's access to a whole project; `untransfer` withdraws
@@ -286,9 +290,16 @@ export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
   'share',
   'unshare',
   'untransfer',
-  // Rewrite memory: `remember` can supersede or overwrite a key, `memory_update`
-  // replaces fields, `memory_unlink` drops a link the next briefing used.
+  // Stops the caller being told when a service goes down.
+  'alerts_off',
+  // Rewrite memory: `remember` can supersede or overwrite a key, `memory_link`
+  // replaces the note on a link that exists, `memory_update` replaces fields,
+  // `memory_unlink` drops a link the next briefing used. A plain `remember`
+  // only adds, and a client that confirms destructive calls will ask before it
+  // anyway: the hint cannot see the arguments, and the directory reads
+  // `remember` by its worst case.
   'remember',
+  'memory_link',
   'memory_update',
   'memory_unlink',
   // Above.
@@ -306,17 +317,35 @@ export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
  * take it off, through DNS and a certificate authority. `publish_resource` and
  * `unpublish_resource` do the same for a bucket's objects. `snap_recipe`
  * publishes a project as a recipe other accounts can install, and
- * `install_recipe` and `update_recipe` build a project from what another
- * account published. Reading a recipe is not here: nothing comes in.
+ * `remove_recipe` withdraws it from them. `install_recipe` and `update_recipe`
+ * build a project from what another account published, and `recipe` and
+ * `recipe_diff` read it — a manifest and notes another account wrote, to be
+ * treated as such.
  */
 export const OPEN_WORLD: ReadonlySet<string> = new Set([
   'add_domain',
   'install_recipe',
   'publish_resource',
+  'recipe',
+  'recipe_diff',
   'remove_domain',
+  'remove_recipe',
   'snap_recipe',
   'unpublish_resource',
   'update_recipe',
+]);
+
+/**
+ * The memory tools that read and write at once, and so are not `readOnlyHint`.
+ * Taken from the engine (axon `src/core/reads.ts`), whose `recordRead` call
+ * sites are these and only these: what a search returns in full counts toward
+ * its ranking, and reading or following linked memories strengthens the links.
+ * `memory_briefing` and `memory_review` record nothing and stay reads.
+ */
+export const READS_THAT_WRITE: ReadonlySet<string> = new Set([
+  'memory_get',
+  'memory_related',
+  'memory_search',
 ]);
 
 /**
@@ -981,7 +1010,7 @@ export function registerTools(server: McpServer, api: Api): void {
               'timescaledb, raster, dblink and the foreign-data wrappers, untrusted languages.',
           ),
       },
-      annotations: writes('Add resource', { idempotent: true }),
+      annotations: destroys('Add resource', { idempotent: true }),
     },
     ({ project, resource, ...body }) =>
       attempt(() =>
@@ -1297,7 +1326,7 @@ export function registerTools(server: McpServer, api: Api): void {
         "Opts the caller out of a project's alerts; other members' are untouched. The console's alerts " +
         'switch turns them back on.',
       inputSchema: { project },
-      annotations: writes('Turn off project alerts', { idempotent: true }),
+      annotations: destroys('Turn off project alerts', { idempotent: true }),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`, { method: 'DELETE' })),
   );
@@ -1581,7 +1610,8 @@ export function registerTools(server: McpServer, api: Api): void {
         'rest as index lines, plus the strongest linked neighbours of the top hits. **Search here ' +
         'before exploring code** — a question about why something is the way it is has often been ' +
         'answered already. With no `query` it browses by rank, and the filters narrow either. An ' +
-        'exact identifier is found by keyword; a paraphrase by meaning. Needs viewer.',
+        'exact identifier is found by keyword; a paraphrase by meaning. What it returns in full ' +
+        'counts as read, which ranks it higher next time. Needs viewer.',
       inputSchema: {
         project,
         query: z.string().optional().describe('a question or keywords. Absent browses by rank.'),
@@ -1600,7 +1630,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .describe('only memories on, above or below these files or directories'),
         budget: memoryBudget,
       },
-      annotations: reads('Search project memory'),
+      annotations: writes('Search project memory', { idempotent: false }),
     },
     ({ project, ...params }) =>
       attempt(async () => rendered(await api.call(`/v1/projects/${seg(project)}/memory${qs(params)}`))),
@@ -1807,7 +1837,7 @@ export function registerTools(server: McpServer, api: Api): void {
         to: z.array(memoryId).describe('the memories to link it with'),
         note: z.string().optional().describe('why they relate, one short line. Not encrypted.'),
       },
-      annotations: writes('Link memories', { idempotent: true }),
+      annotations: destroys('Link memories', { idempotent: true }),
     },
     ({ project, id, ...body }) =>
       attempt(async () =>
@@ -1937,7 +1967,7 @@ export function registerTools(server: McpServer, api: Api): void {
         recipe: z.string().describe('recipe id'),
         version: z.string().optional().describe('version, such as 1.2.0; the latest when omitted'),
       },
-      annotations: reads('Show recipe'),
+      annotations: reads('Show recipe', { openWorld: true }),
     },
     ({ recipe, version }) => attempt(() => api.call(recipePath(recipe, version))),
   );
@@ -2027,7 +2057,7 @@ export function registerTools(server: McpServer, api: Api): void {
         recipe: z.string().describe('recipe id'),
         version: z.string().optional().describe('version to withdraw; the whole recipe when omitted'),
       },
-      annotations: destroys('Remove recipe', { idempotent: true }),
+      annotations: destroys('Remove recipe', { idempotent: true, openWorld: true }),
     },
     ({ recipe, version }) => attempt(() => api.call(recipePath(recipe, version), { method: 'DELETE' })),
   );
@@ -2050,7 +2080,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .optional()
           .describe("plan as `update_recipe` with `force` would: taking the recipe's side on conflicts"),
       },
-      annotations: reads('Diff recipe update'),
+      annotations: reads('Diff recipe update', { openWorld: true }),
     },
     ({ project, ...body }) =>
       attempt(() => api.call(`/v1/projects/${seg(project)}/recipe/diff`, { method: 'POST', body })),
