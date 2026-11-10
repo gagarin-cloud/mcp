@@ -186,7 +186,10 @@ function qs(params: Record<string, string | number | boolean | readonly string[]
     Memory is the exception: it is the agents' own notebook, written on every
     session, and nothing in it is lost — a superseded or archived memory is
     kept and still readable, and a link can be made again. Confirming each
-    note would teach people to stop keeping them.
+    note would teach people to stop keeping them. `add_resource` is not
+    destructive either, because dropping an extension is refused rather than
+    allowed to lose data. Nor is `alerts_off`, which touches only the caller
+    and which the console switch undoes.
   - `openWorldHint` for a call that reaches past the caller's account — puts
     something on the public internet or before other accounts, or takes in
     what another account published. `OPEN_WORLD` below is the list, and each
@@ -283,9 +286,7 @@ export const APPROVAL_REQUIRED: ReadonlySet<string> = new Set([
  * through `requireElevation` — the editor role is the whole of the gate.
  */
 export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
-  // Replace what is running: the environment, the image, or both; or a
-  // resource's size and its whole set of extensions.
-  'add_resource',
+  // Replace what is running: the environment, the image, or both.
   'deploy',
   'rollback',
   // Give or take a person's access to a whole project; `untransfer` withdraws
@@ -293,8 +294,6 @@ export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
   'share',
   'unshare',
   'untransfer',
-  // Stops the caller being told when a service goes down.
-  'alerts_off',
   // Above.
   'publish_resource',
   'revoke_credential',
@@ -1003,7 +1002,7 @@ export function registerTools(server: McpServer, api: Api): void {
               'timescaledb, raster, dblink and the foreign-data wrappers, untrusted languages.',
           ),
       },
-      annotations: destroys('Add resource', { idempotent: true }),
+      annotations: writes('Add resource', { idempotent: true }),
     },
     ({ project, resource, ...body }) =>
       attempt(() =>
@@ -1319,7 +1318,7 @@ export function registerTools(server: McpServer, api: Api): void {
         "Opts the caller out of a project's alerts; other members' are untouched. The console's alerts " +
         'switch turns them back on.',
       inputSchema: { project },
-      annotations: destroys('Turn off project alerts', { idempotent: true }),
+      annotations: writes('Turn off project alerts', { idempotent: true }),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`, { method: 'DELETE' })),
   );
