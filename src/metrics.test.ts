@@ -13,7 +13,15 @@ test('a series is reduced to last, average, peak and the peak against the limit'
     ],
     0.5,
   )!;
-  assert.deepEqual(s, { unit: 'cores', last: 0.25, avg: 0.25, peak: 0.4, limit: 0.5, peak_pct_of_limit: 80 });
+  assert.deepEqual(s, {
+    unit: 'cores',
+    last: 0.25,
+    last_at: 3,
+    avg: 0.25,
+    peak: 0.4,
+    limit: 0.5,
+    peak_pct_of_limit: 80,
+  });
 });
 
 test('no limit means no percentage, and a zero limit is not divided by', () => {
@@ -35,6 +43,7 @@ test('null points are not measured and are not counted as zero', () => {
     200,
   )!;
   assert.equal(s.last, 100);
+  assert.equal(s.last_at, 2, 'the last value is dated by its own point, not the end of the window');
   assert.equal(s.avg, 100);
   assert.equal(summarizeSeries('bytes', [[1, null]], 200), undefined);
   assert.equal(summarizeSeries('bytes', [], 200), undefined);

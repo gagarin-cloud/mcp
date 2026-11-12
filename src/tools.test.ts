@@ -2069,6 +2069,7 @@ test('metrics reads the project, or summarises one service over a window', async
     const body = JSON.parse(textOf(one));
     assert.equal(body.series.memory.peak, 900);
     assert.equal(body.series.memory.last, 700);
+    assert.equal(body.series.memory.last_at, 3);
     assert.equal(body.series.memory.peak_pct_of_limit, 90);
     assert.equal(body.series.memory.unit, 'bytes');
     assert.equal(body.series.points, undefined);
@@ -2082,6 +2083,15 @@ test('metrics reads the project, or summarises one service over a window', async
     });
     assert.ok(bad.isError, 'a window the engine does not know is refused before it is sent');
     assert.equal(kit.seen.length, 3);
+
+    // A window without a service would be the project's figures now, read as history.
+    const projectWindow = await kit.client.callTool({
+      name: 'metrics',
+      arguments: { project: 'shop', window: '7d' },
+    });
+    assert.ok(projectWindow.isError);
+    assert.match(textOf(projectWindow), /\[window_needs_service\]/);
+    assert.equal(kit.seen.length, 3, 'refused before it is sent');
   } finally {
     await kit[Symbol.asyncDispose]();
   }

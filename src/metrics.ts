@@ -5,7 +5,8 @@
   agent does not need them and cannot read them; it needs the last value, the
   average and the peak, and how close the peak came to the limit. Units are
   named in the answer so nothing has to be remembered about what a bare number
-  is.
+  is, and the last value carries when it was taken: a service that stopped
+  reporting hours ago still has a last value, and it is not "now".
 */
 
 export type Point = readonly [number, number | null];
@@ -21,6 +22,8 @@ export type RangeRead = {
 export type SeriesSummary = {
   unit: string;
   last: number;
+  /** Unix seconds of `last`. */
+  last_at: number;
   avg: number;
   peak: number;
   limit: number | null;
@@ -48,15 +51,17 @@ export function summarizeSeries(
   points: readonly Point[],
   limit: number | null | undefined,
 ): SeriesSummary | undefined {
-  const values = points
-    .map((p) => p[1])
-    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-  if (values.length === 0) return undefined;
+  const measured = points.filter(
+    (p): p is readonly [number, number] => typeof p[1] === 'number' && Number.isFinite(p[1]),
+  );
+  if (measured.length === 0) return undefined;
+  const values = measured.map((p) => p[1]);
   const peak = Math.max(...values);
   const hasLimit = typeof limit === 'number' && limit > 0;
   return {
     unit,
     last: round(values[values.length - 1]!),
+    last_at: measured[measured.length - 1]![0],
     avg: round(values.reduce((a, b) => a + b, 0) / values.length),
     peak: round(peak),
     limit: hasLimit ? limit : null,

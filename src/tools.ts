@@ -813,7 +813,8 @@ export function registerTools(server: McpServer, api: Api): void {
         'of memory, throttled, or a disk is filling — before guessing from logs. Without `service` it is the ' +
         'whole project at once, one entry per service, with the current figure and its limit. With ' +
         '`service` it is that service over `window` (1h, 24h by default, 7d or 30d), summarised per series ' +
-        'as `last`, `avg`, `peak`, the `limit` and `peak_pct_of_limit`, with the unit named — not raw points. ' +
+        'as `last` (taken at `last_at`, unix seconds), `avg`, `peak`, the `limit` and `peak_pct_of_limit`, ' +
+        'with the unit named — not raw points. `window` without `service` is refused `window_needs_service`. ' +
         'Units: CPU in cores, memory and disk in bytes, throttled and errors as fractions 0..1, network in ' +
         'bytes/s, requests in req/s, latency in seconds. Any figure is null (or its series absent) when it ' +
         'was not measured, which is not the same as zero; HTTP figures exist only for services with a public ' +
@@ -833,6 +834,15 @@ export function registerTools(server: McpServer, api: Api): void {
     ({ project, service, window }) =>
       attempt(async () => {
         if (service === undefined) {
+          // The project read is figures now; a window here would be silently
+          // ignored and read as history it is not.
+          if (window !== undefined) {
+            throw new ApiFailure(400, {
+              code: 'window_needs_service',
+              message: "window is for one service's history; without service the answer is every service now",
+              fix_hint: 'name the service to read it over the window, or leave window out',
+            });
+          }
           return api.call(`/v1/projects/${seg(project)}/metrics`);
         }
         const read = await api.call<RangeRead>(
