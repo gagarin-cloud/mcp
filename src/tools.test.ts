@@ -9,6 +9,7 @@
 */
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -83,14 +84,20 @@ test('every tool is described, and the ones that cannot be here are not', async 
   }
 });
 
-test('a read carries the credential and nothing else', async () => {
-  const kit = await connected(() => json({ account: 'someone@example.com', can: ['deploy'] }));
+// whoami is the first call of every session, so whatever it returns reaches
+// every conversation. The engine's answer names the account by email, which no
+// task here needs; it must not get through.
+test("a read carries the credential, and whoami never the caller's email", async () => {
+  const kit = await connected(() =>
+    json({ account: 'someone@example.com', can: ['deploy'], registry: 'registry.example' }),
+  );
   try {
     const result = await kit.client.callTool({ name: 'whoami', arguments: {} });
     assert.equal(kit.seen[0]?.url, 'https://api.example/v1/whoami');
     assert.equal(kit.seen[0]?.method, 'GET');
     assert.equal(kit.seen[0]?.headers.Authorization, 'Bearer a-credential');
-    assert.match(textOf(result), /someone@example\.com/);
+    assert.match(textOf(result), /registry\.example/);
+    assert.doesNotMatch(textOf(result), /@/);
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -123,41 +130,6 @@ test('deploy PUTs the service and passes the environment through whole', async (
   }
 });
 
-test('amending an external sends set, and never env', async () => {
-  const kit = await connected(() =>
-    json({ resource: 'openai', changed: ['OPENAI_API_KEY'], removed: [], dependents: ['bot'] }),
-  );
-  try {
-    await kit.client.callTool({
-      name: 'rotate_resource',
-      arguments: { project: 'shop', resource: 'openai', set: { API_KEY: 'sk-two' } },
-    });
-    const call = kit.seen[0]!;
-    assert.equal(call.url, 'https://api.example/v1/projects/shop/resources/openai/rotate');
-    assert.equal(call.method, 'POST');
-    // The distinction this tool exists to preserve: `env` here would replace
-    // the bundle, taking every other key away from every dependent.
-    assert.deepEqual(call.body, { set: { API_KEY: 'sk-two' } });
-  } finally {
-    await kit[Symbol.asyncDispose]();
-  }
-});
-
-test('a removal goes as unset, and what stopped being published comes back', async () => {
-  const kit = await connected(() => json({ resource: 'openai', changed: [], removed: ['OPENAI_BASE_URL'] }));
-  try {
-    const result = await kit.client.callTool({
-      name: 'rotate_resource',
-      arguments: { project: 'shop', resource: 'openai', unset: ['BASE_URL'] },
-    });
-    assert.deepEqual(kit.seen[0]!.body, { unset: ['BASE_URL'] });
-    // The caller has to be able to see the loss to report it.
-    assert.match(textOf(result), /OPENAI_BASE_URL/);
-  } finally {
-    await kit[Symbol.asyncDispose]();
-  }
-});
-
 test('a minted rotation still sends an empty body', async () => {
   const kit = await connected(() => json({ resource: 'db' }));
   try {
@@ -168,17 +140,24 @@ test('a minted rotation still sends an empty body', async () => {
   }
 });
 
-test('a request combining env with set is passed on for the engine to refuse', async () => {
-  const kit = await connected(() => json({ error: { code: 'conflicting_env' } }, 400));
+// An external's values are a third party's secrets, and no tool here takes
+// one: changing them is `gg resource rotate --env-file`. A client that still
+// sends them is refused by name, and nothing reaches the engine.
+test('rotate_resource takes no values, and a client that sends some is refused', async () => {
+  const kit = await connected(() => json({}));
   try {
-    await kit.client.callTool({
-      name: 'rotate_resource',
-      arguments: { project: 'shop', resource: 'openai', env: { API_KEY: 'a' }, set: { BASE_URL: 'b' } },
-    });
-    // Both halves reach the engine. Dropping one here to make the request
-    // valid would report a rotation that succeeded as the one that was asked
-    // for, when it was not.
-    assert.deepEqual(kit.seen[0]!.body, { env: { API_KEY: 'a' }, set: { BASE_URL: 'b' } });
+    for (const values of [
+      { env: { API_KEY: 'sk-a' } },
+      { set: { API_KEY: 'sk-a' } },
+      { unset: ['API_KEY'] },
+    ]) {
+      const result = await kit.client.callTool({
+        name: 'rotate_resource',
+        arguments: { project: 'shop', resource: 'openai', ...values },
+      });
+      assert.equal(result.isError, true, `${Object.keys(values)[0]} must be refused`);
+    }
+    assert.equal(kit.seen.length, 0);
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -206,13 +185,11 @@ test('the safe read is the one a model is steered to', async () => {
   try {
     const { tools } = await kit.client.listTools();
     const keys = tools.find((t: any) => t.name === 'resource_keys')!;
-    const secrets = tools.find((t: any) => t.name === 'resource_secrets')!;
     const status = tools.find((t: any) => t.name === 'status')!;
-    // Two tools answer nearly the same question and only one of them puts a
-    // credential in the transcript, so which to reach for cannot be left to
-    // the model to infer from their titles.
-    assert.match(keys.description!, /Prefer this over `resource_secrets`/i);
-    assert.match(secrets.description!, /only when a value is what you need/i);
+    // Names are the most any tool here says about a resource's values, and the
+    // descriptions must not send a model looking for more.
+    assert.match(keys.description!, /no tool here returns the values/i);
+    assert.match(status.description!, /no tool here returns the values/i);
     // And status must not send anyone looking for values it no longer carries.
     assert.match(status.description!, /does not carry a resource's environment/i);
     // Nor a service's: the engine returns names only, and the descriptions must
@@ -262,8 +239,8 @@ test('the rollback tool says config is undone at the resource, not the dependent
     // back a dependent does not undo a config change, because the injected half
     // is re-derived rather than restored.
     assert.match(rollback.description!, /roll back the external resource holding it/i);
-    // And the pattern itself has to be discoverable from the tool that creates one.
-    assert.match(add.description!, /shared configuration/i);
+    // And where an external comes from, since this server cannot make one.
+    assert.match(add.description!, /gg resource add PROJECT\/NAME external --env-file/);
 
     // The failure mode this is really guarding: an agent asked to change one
     // variable, without the user's env file, reconstructing the whole
@@ -274,7 +251,6 @@ test('the rollback tool says config is undone at the resource, not the dependent
     const deploy = tools.find((t: any) => t.name === 'deploy')!;
     assert.match(deploy.description!, /do NOT reconstruct it/i);
     assert.match(deploy.description!, /external/i);
-    assert.match(add.description!, /do not have the user's env file/i);
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -942,15 +918,71 @@ test('set_deps says what an empty list does', async () => {
   }
 });
 
-// Read-only, and yet it hands live credentials to whatever is reading. The
-// annotation cannot carry that; the description has to.
-test('resource_secrets is read-only and says it returns secrets', async () => {
+/*
+  No secret passes through these tools, in either direction (OpenAI's restricted
+  data: access credentials and authentication secrets). Three ways one could
+  come back, each pinned:
+
+  - a tool whose answer is a credential — a resource's password, a new token;
+  - a parameter that takes a map of values, which is how a key gets in. `deploy`
+    and `run` keep `env` because leaving it out empties the environment, and
+    their descriptions say it is configuration only;
+  - an `external`, whose values the engine would ask for if this server let the
+    call through.
+*/
+test('no tool returns a credential', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const names = (await kit.client.listTools()).tools.map((t) => t.name);
+    for (const gone of ['resource_secrets', 'create_credential']) {
+      assert.ok(!names.includes(gone), `${gone} hands a secret to the conversation`);
+    }
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('only deploy and run take a map of values, and both say it is never a secret', async () => {
   const kit = await connected(() => json({}));
   try {
     const { tools } = await kit.client.listTools();
-    const secrets = tools.find((t) => t.name === 'resource_secrets')!;
-    assert.equal(secrets.annotations?.readOnlyHint, true);
-    assert.match(String(secrets.description), /credentials|secret/i);
+    const takesValues: string[] = [];
+    for (const tool of tools) {
+      for (const [param, schema] of Object.entries((tool.inputSchema as any).properties ?? {})) {
+        const s = schema as { type?: string; additionalProperties?: unknown };
+        if (s.type === 'object' && typeof s.additionalProperties === 'object') {
+          takesValues.push(`${tool.name}.${param}`);
+        }
+      }
+    }
+    assert.deepEqual(takesValues.sort(), ['deploy.env', 'run.env']);
+    for (const name of ['deploy', 'run']) {
+      const env = (tools.find((t) => t.name === name)!.inputSchema as any).properties.env;
+      assert.match(String(env.description), /never a secret/i, `${name}.env must say what it is not for`);
+    }
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('add_resource refuses an external and its values, and asks the engine nothing', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const external = await kit.client.callTool({
+      name: 'add_resource',
+      arguments: { project: 'shop', resource: 'openai', type: 'external' },
+    });
+    assert.equal(external.isError, true);
+    assert.match(textOf(external), /\[secrets_not_here\]/);
+    assert.match(textOf(external), /gg resource add shop\/openai external --env-file/);
+
+    const values = await kit.client.callTool({
+      name: 'add_resource',
+      arguments: { project: 'shop', resource: 'openai', type: 'external', env: { API_KEY: 'sk-a' } },
+    });
+    assert.equal(values.isError, true);
+    assert.doesNotMatch(textOf(values), /sk-a/);
+    assert.equal(kit.seen.length, 0);
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -998,6 +1030,46 @@ test('tools/list matches the recorded annotations', async () => {
       TOOLS_SNAPSHOT,
       'the tools changed; check the classification by hand, then update src/tools.snapshot.ts',
     );
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+/*
+  ANNOTATIONS.md is the written reason for every hint — what a directory
+  reviewer reads, and what the submission quotes. It is prose, so it is held
+  to the tools here row by row: the same tools, the same four booleans, a
+  reason for each, and † on exactly the ones that wait for a human.
+*/
+test('ANNOTATIONS.md gives every tool its real hints and a reason', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const doc = readFileSync(new URL('../ANNOTATIONS.md', import.meta.url), 'utf8');
+    const rows = new Map<string, { hints: boolean[]; why: string }>();
+    for (const m of doc.matchAll(/^\| `([a-z_]+)` \| (\w+) \| (\w+) \| (\w+) \| (\w+) \| (.*) \|$/gm)) {
+      rows.set(m[1]!, { hints: [m[2], m[3], m[4], m[5]].map((h) => h === 'true'), why: m[6]!.trim() });
+    }
+    assert.deepEqual(
+      [...rows.keys()].sort(),
+      tools.map((t) => t.name).sort(),
+      'ANNOTATIONS.md lists other tools',
+    );
+    for (const t of tools) {
+      const row = rows.get(t.name)!;
+      const a = t.annotations!;
+      assert.deepEqual(
+        row.hints,
+        [a.readOnlyHint, a.destructiveHint, a.idempotentHint, a.openWorldHint],
+        `${t.name}: ANNOTATIONS.md disagrees with the server`,
+      );
+      assert.ok(row.why.replace('†', '').trim().length > 20, `${t.name} needs a reason`);
+      assert.equal(
+        row.why.startsWith('†'),
+        APPROVAL_REQUIRED.has(t.name),
+        `${t.name}: † marks approval_required`,
+      );
+    }
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -1714,7 +1786,9 @@ test("referrals is a read of the caller's own /v1/referrals, and cannot write", 
     );
     assert.equal(kit.seen[0]?.body, undefined);
     assert.match(textOf(result), /7K3M9QXA/);
-    assert.match(textOf(result), /alice/);
+    // What the link earned, never who signed up through it.
+    assert.match(textOf(result), /15000000/);
+    assert.doesNotMatch(textOf(result), /alice/);
   } finally {
     await kit[Symbol.asyncDispose]();
   }
@@ -1788,20 +1862,29 @@ test('install_recipe POSTs the recipe and version', async () => {
   }
 });
 
-test('install_recipe forwards inputs verbatim and only when given', async () => {
+// A recipe's inputs are the deployer's secrets, so they go through
+// `gg recipe install --input NAME=FILE` and never here. The finishing call of a
+// recipe without inputs is the same call again, carrying nothing.
+test('install_recipe never carries inputs, and a client that sends some is refused', async () => {
   const kit = await connected(() => json({}));
   try {
     await kit.client.callTool({ name: 'install_recipe', arguments: { project: 'p', recipe: 'ab12cd34' } });
-    const first = kit.seen[0]?.body as Record<string, unknown>;
-    assert.ok(!('inputs' in first), 'no inputs key on the call that started the copy');
-    assert.deepEqual(first, { recipe: 'ab12cd34' });
+    await kit.client.callTool({ name: 'install_recipe', arguments: { project: 'p', recipe: 'ab12cd34' } });
+    assert.deepEqual(
+      kit.seen.map((c) => c.body),
+      [{ recipe: 'ab12cd34' }, { recipe: 'ab12cd34' }],
+    );
 
-    const inputs = { database: { DATABASE_URL: 'postgres://u:p@h/db' } };
-    await kit.client.callTool({
+    const sent = await kit.client.callTool({
       name: 'install_recipe',
-      arguments: { project: 'p', recipe: 'ab12cd34', inputs },
+      arguments: {
+        project: 'p',
+        recipe: 'ab12cd34',
+        inputs: { database: { DATABASE_URL: 'postgres://u:p@h/db' } },
+      },
     });
-    assert.deepEqual((kit.seen[1]?.body as any).inputs, inputs);
+    assert.equal(sent.isError, true);
+    assert.equal(kit.seen.length, 2);
 
     // An unknown key is refused, not dropped.
     const refused = await kit.client.callTool({
@@ -1854,16 +1937,23 @@ test('recipe_diff POSTs to the diff path and is annotated as a read', async () =
   }
 });
 
-test('update_recipe POSTs the update with force and inputs', async () => {
+test('update_recipe POSTs the update with force, and never inputs', async () => {
   const kit = await connected(() => json({}));
   try {
     await kit.client.callTool({
       name: 'update_recipe',
-      arguments: { project: 'p', version: '1.1.0', force: true, inputs: { db: { URL: 'x' } } },
+      arguments: { project: 'p', version: '1.1.0', force: true },
     });
     assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/p/recipe/update');
     assert.equal(kit.seen[0]?.method, 'POST');
-    assert.deepEqual(kit.seen[0]?.body, { version: '1.1.0', force: true, inputs: { db: { URL: 'x' } } });
+    assert.deepEqual(kit.seen[0]?.body, { version: '1.1.0', force: true });
+
+    const sent = await kit.client.callTool({
+      name: 'update_recipe',
+      arguments: { project: 'p', inputs: { db: { URL: 'postgres://u:p@h/db' } } },
+    });
+    assert.equal(sent.isError, true);
+    assert.equal(kit.seen.length, 1);
   } finally {
     await kit[Symbol.asyncDispose]();
   }

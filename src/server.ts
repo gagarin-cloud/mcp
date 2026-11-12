@@ -28,10 +28,10 @@ import { registerTools } from './tools.js';
  * pasted here would be wrong in the places they differ and stale in the rest.
  */
 export const INSTRUCTIONS = `Gagarin runs container images on managed infrastructure. This server is the
-Gagarin API, as tools. Call whoami first: it says which account you are acting
-as and whether the credential can deploy.
+Gagarin API, as tools. Call whoami first: it says whether there is a credential
+and whether it can deploy.
 
-Eight things that are true of every call here:
+Nine things that are true of every call here:
 
 1. Everything is named for its project — a project, and a service or resource
    inside it. Nothing is inferred from a working directory.
@@ -66,6 +66,8 @@ Eight things that are true of every call here:
    answers \`approval_required\` and emails the account owner a button. Call it
    again after they click — one click covers the fifteen minutes after it. No
    credential changes this. Adding is always free.
+9. No tool takes or returns a secret: your human handles those with \`gg\`,
+   from a file, never in this chat.
 
 Every project also carries a memory: durable facts saved by earlier sessions.
 Call \`memory_briefing\` before reading code on a project, and \`remember\` what
@@ -141,8 +143,8 @@ read like a platform fault:
    message broker).
 2. \`set_deps\` on the service, listing the resource. That opens the route and
    hands over the connection variables; the service rolls on its own. There is
-   no second call and nothing to copy by hand — \`resource_secrets\` exists for
-   something *outside* the project, not for a service inside it.
+   no second call and nothing to copy by hand, and no tool here would show you
+   the values if you asked.
 3. \`status\` to watch it come up.
 
 A postgres takes \`extensions\`: the postgres extensions it should have, named
@@ -282,8 +284,10 @@ into a new project of their own (\`https://my.gagarin.cloud/deploy/<id>\`).
   \`env_looks_secret\` names the variables that broke this.
 - **Installing** goes into a NEW, empty project only: \`create_project\`, then
   \`install_recipe\` to start the copy, \`recipe_install\` until the state is
-  \`copied\`, then \`install_recipe\` again with \`inputs\`. Inputs go on that last
-  call only; the values land in external resources and nowhere else.
+  \`copied\`, then \`install_recipe\` again. That is for a recipe with no inputs:
+  an input's values are secrets (see 9), so when \`recipe\` lists any, the whole
+  install is your human's \`gg recipe install RECIPE NEW_PROJECT --input
+  NAME=FILE\`, and you do not create the project first.
 - **Updating** is \`recipe_diff\` then \`update_recipe\`. \`update_conflict\` means
   the deployer changed something the recipe also changes: ask before \`force\`.
 
