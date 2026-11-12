@@ -122,12 +122,39 @@ function besides(err: ApiFailure): string {
  * what it mints to a file or a secret store, so the value is never in a
  * transcript. The hint is that command, for the human to run.
  */
-function secretsGoThroughGg(why: string, command: string): ApiFailure {
+function secretsGoThroughGg(why: string, command: string, after = ''): ApiFailure {
   return new ApiFailure(400, {
     code: 'secrets_not_here',
     message: `${why}: secrets never pass through these tools`,
-    fix_hint: `ask your human to run \`${command}\` on a machine that has the file, without printing the values`,
+    fix_hint:
+      `ask your human to run \`${command}\` on a machine that has the file, without printing the values` +
+      (after ? `. ${after}` : ''),
   });
+}
+
+/**
+ * A call whose refusal, as the engine words it, would ask for a secret.
+ *
+ * The engine writes its hints for `gg` and the console, where sending the
+ * values is the next step: `env_required` says to send `{"env":{"API_KEY":…}}`,
+ * `inputs_missing` to send `{"inputs":…}`. Passed through here they would ask an
+ * agent for the one thing this server must not carry, through a parameter it no
+ * longer has. Those codes become `secrets_not_here`, naming the gg command.
+ */
+async function refusingSecrets(call: Promise<unknown>, code: string, refusal: () => ApiFailure) {
+  try {
+    return await call;
+  } catch (err) {
+    if (err instanceof ApiFailure && err.error.code === code) throw refusal();
+    throw err;
+  }
+}
+
+/** Only the named fields of an engine answer: what a tool decided to say, and
+ *  nothing the engine adds later. */
+function pick(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  const from = (value ?? {}) as Record<string, unknown>;
+  return Object.fromEntries(keys.filter((k) => k in from).map((k) => [k, from[k]]));
 }
 
 /** Run a tool body, and turn any gagarin failure into the contract above. */
@@ -201,10 +228,8 @@ function qs(params: Record<string, string | number | boolean | readonly string[]
     kept for calls that only add. A hint is static and covers the call's worst
     case, so a tool is destructive when any of its arguments make it so:
     `remember` can supersede a memory, `add_resource` resizes one that
-    exists. There are no exceptions, memory included. The alert switches
-    (`set_alerts`, `alerts_off`) are not state in this sense: each records
-    only the caller's own preference about being notified, and nothing
-    anybody had is lost by flipping it.
+    exists. There are no exceptions, memory included: `alerts_off` is
+    destructive because it takes away the caller's outage alerts.
   - `openWorldHint` for a call that reaches past the caller's account — puts
     something on the public internet or before other accounts, or takes in
     what another account published. `OPEN_WORLD` below is the list, and each
@@ -299,11 +324,17 @@ export const APPROVAL_REQUIRED: ReadonlySet<string> = new Set([
  * nothing can recall, so a client should confirm it; `unpublish_resource` is its
  * pair and is classed with it so the two read as one decision. Neither goes
  * through `requireElevation` — the editor role is the whole of the gate.
+ *
+ * The rest replace something without taking it away for good, so the engine
+ * lets them through: a job's next runs, a resource's size, a memory's text,
+ * the caller's own alerts. A client should still confirm them, which is all the
+ * hint asks.
  */
 export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
   // Replace what is running: the environment, the image, or both.
   'deploy',
   'rollback',
+  'run',
   // Give or take a person's access to a whole project; `untransfer` withdraws
   // an ownership offer somebody may be about to accept.
   'share',
@@ -316,6 +347,8 @@ export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
   'unpublish_resource',
   // Resizes a resource that exists, and replaces a postgres's extension set.
   'add_resource',
+  // Stops the caller being told when a service goes down.
+  'alerts_off',
   // Supersede, overwrite, archive or unlink a memory, or replace a link's note.
   'memory_link',
   'memory_unlink',
@@ -408,15 +441,21 @@ export function registerTools(server: McpServer, api: Api): void {
       // and structuredContent with a stable opaque `id` — and the engine's
       // /v1/whoami has no id to give. Add it when the engine exposes one.
     },
-    // The engine's answer, less `account`: the email `gg whoami` shows its
+    // The engine's answer without `account`, the email `gg whoami` shows its
     // owner. Every session calls this first, and nothing an agent does here
-    // takes the caller's own address, so returning it would hand a personal
-    // identifier to every conversation for no request that needed it.
+    // takes the caller's own address. Named rather than subtracted, so a field
+    // the engine adds later is not handed to every conversation by default.
     () =>
-      attempt(async () => {
-        const { account: _email, ...rest } = (await api.call('/v1/whoami')) as Record<string, unknown>;
-        return rest;
-      }),
+      attempt(async () =>
+        pick(await api.call('/v1/whoami'), [
+          'can',
+          'client',
+          'account_created_at',
+          'registry',
+          'base_domain',
+          'platform',
+        ]),
+      ),
   );
 
   tool(
@@ -501,20 +540,6 @@ export function registerTools(server: McpServer, api: Api): void {
       annotations: reads('Show project status'),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/status`)),
-  );
-
-  tool(
-    'eject',
-    {
-      title: 'Export project manifests',
-      description:
-        'The Kubernetes manifests, Dockerfiles and connection details for a whole project, so it ' +
-        "can be run somewhere else. Owner only: what comes back includes every service's " +
-        'environment in the clear.',
-      inputSchema: { project },
-      annotations: reads('Export project manifests'),
-    },
-    ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/eject`)),
   );
 
   // ─── services ────────────────────────────────────────────────────────────
@@ -722,7 +747,7 @@ export function registerTools(server: McpServer, api: Api): void {
               'not a recognized IANA zone name.',
           ),
       },
-      annotations: writes('Run job', { idempotent: false }),
+      annotations: destroys('Run job', { idempotent: false }),
     },
     ({ project, service, ...body }) =>
       attempt(() =>
@@ -1124,10 +1149,18 @@ export function registerTools(server: McpServer, api: Api): void {
     },
     ({ project, resource }) =>
       attempt(() =>
-        api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/rotate`, {
-          method: 'POST',
-          body: {},
-        }),
+        refusingSecrets(
+          api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/rotate`, {
+            method: 'POST',
+            body: {},
+          }),
+          'env_required',
+          () =>
+            secretsGoThroughGg(
+              'an external resource holds values only your human supplies',
+              `gg resource rotate ${project}/${resource} --env-file FILE`,
+            ),
+        ),
       ),
   );
 
@@ -1203,7 +1236,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .optional()
           .describe("how big the new resource's volume may get. Fixed at creation, like every volume."),
       },
-      annotations: writes('Restore backup into a new resource', { idempotent: false }),
+      annotations: writes('Restore backup into a new resource', { idempotent: true }),
     },
     ({ project, resource, source, backup, size, storage_gb }) =>
       attempt(() =>
@@ -1285,7 +1318,7 @@ export function registerTools(server: McpServer, api: Api): void {
         "Opts the caller out of a project's alerts; other members' are untouched. The console's alerts " +
         'switch turns them back on.',
       inputSchema: { project },
-      annotations: writes('Turn off project alerts', { idempotent: true }),
+      annotations: destroys('Turn off project alerts', { idempotent: true }),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`, { method: 'DELETE' })),
   );
@@ -1427,13 +1460,26 @@ export function registerTools(server: McpServer, api: Api): void {
       inputSchema: {},
       annotations: reads('Show referrals'),
     },
-    // Less each signup's `display` (a GitHub login or masked email): the
+    // Each signup without `display`, its GitHub login or masked email: the
     // question this answers is what the link earned, which needs no names, and
-    // the people it names never chose to be read into somebody's chat.
+    // the people it names never chose to be read into somebody's chat. Named
+    // rather than subtracted, like whoami.
     () =>
       attempt(async () => {
-        const answer = (await api.call('/v1/referrals')) as { invited?: Record<string, unknown>[] };
-        return { ...answer, invited: answer.invited?.map(({ display: _display, ...row }) => row) };
+        const answer = (await api.call('/v1/referrals')) as { invited?: unknown[] };
+        return {
+          ...answer,
+          invited: answer.invited?.map((row) =>
+            pick(row, [
+              'joined_at',
+              'window_ends_at',
+              'earning',
+              'status',
+              'topped_up_micro_usd',
+              'earned_micro_usd',
+            ]),
+          ),
+        };
       }),
   );
 
@@ -1958,7 +2004,18 @@ export function registerTools(server: McpServer, api: Api): void {
       annotations: writes('Install recipe', { idempotent: true, openWorld: true }),
     },
     ({ project, ...body }) =>
-      attempt(() => api.call(`/v1/projects/${seg(project)}/recipe`, { method: 'POST', body })),
+      attempt(() =>
+        refusingSecrets(
+          api.call(`/v1/projects/${seg(project)}/recipe`, { method: 'POST', body }),
+          'inputs_missing',
+          () =>
+            secretsGoThroughGg(
+              'this recipe needs inputs',
+              `gg recipe install ${body.recipe} NEW_PROJECT --input NAME=FILE`,
+              `gg makes its own project, so ${project} stays empty; \`destroy_project\` removes it`,
+            ),
+        ),
+      ),
   );
 
   tool(
@@ -2042,6 +2099,13 @@ export function registerTools(server: McpServer, api: Api): void {
       annotations: destroys('Update recipe', { idempotent: false, openWorld: true }),
     },
     ({ project, ...body }) =>
-      attempt(() => api.call(`/v1/projects/${seg(project)}/recipe/update`, { method: 'POST', body })),
+      attempt(() =>
+        refusingSecrets(
+          api.call(`/v1/projects/${seg(project)}/recipe/update`, { method: 'POST', body }),
+          'inputs_missing',
+          () =>
+            secretsGoThroughGg('this version needs inputs', `gg recipe update ${project} --input NAME=FILE`),
+        ),
+      ),
   );
 }

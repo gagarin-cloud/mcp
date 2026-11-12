@@ -930,15 +930,92 @@ test('set_deps says what an empty list does', async () => {
   - an `external`, whose values the engine would ask for if this server let the
     call through.
 */
+// Every tool, called with the least its schema accepts, against an engine that
+// answers anything. None may ask a route whose answer is a credential: a
+// resource's values, the project export (which renders every environment and
+// each managed resource's password in the clear), or a newly minted token.
+// Swept rather than listed, so a new tool that reaches one fails here.
+const SECRET_ROUTES = [/\/secrets$/, /\/eject(\?|$)/, /^POST https:\/\/api\.example\/v1\/credentials$/];
+
+function leastArguments(schema: any): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  for (const name of schema.required ?? []) {
+    const type = schema.properties[name]?.type;
+    args[name] =
+      type === 'integer' || type === 'number'
+        ? 1
+        : type === 'boolean'
+          ? false
+          : type === 'array'
+            ? []
+            : type === 'object'
+              ? {}
+              : 'x';
+  }
+  return args;
+}
+
 test('no tool returns a credential', async () => {
   const kit = await connected(() => json({}));
   try {
-    const names = (await kit.client.listTools()).tools.map((t) => t.name);
-    for (const gone of ['resource_secrets', 'create_credential']) {
-      assert.ok(!names.includes(gone), `${gone} hands a secret to the conversation`);
+    const { tools } = await kit.client.listTools();
+    for (const tool of tools) {
+      await kit.client.callTool({ name: tool.name, arguments: leastArguments(tool.inputSchema) });
+    }
+    assert.ok(kit.seen.length > tools.length / 2, 'the sweep reached the engine too rarely to mean anything');
+    for (const call of kit.seen) {
+      const line = `${call.method} ${call.url}`;
+      assert.ok(!SECRET_ROUTES.some((r) => r.test(line) || r.test(call.url)), `a tool asked ${line}`);
     }
   } finally {
     await kit[Symbol.asyncDispose]();
+  }
+});
+
+// The engine's hints are written for gg and the console, where sending the
+// values is the next step. Through here they would ask an agent for a secret
+// it has no parameter to pass, so the refusal becomes the gg command instead.
+test('a refusal that would ask for a secret names the gg command instead', async () => {
+  const cases = [
+    {
+      tool: 'rotate_resource',
+      args: { project: 'shop', resource: 'openai' },
+      code: 'env_required',
+      gg: /gg resource rotate shop\/openai --env-file FILE/,
+    },
+    {
+      tool: 'install_recipe',
+      args: { project: 'demo', recipe: 'ab12cd34' },
+      code: 'inputs_missing',
+      gg: /gg recipe install ab12cd34 NEW_PROJECT --input NAME=FILE/,
+    },
+    {
+      tool: 'update_recipe',
+      args: { project: 'demo' },
+      code: 'inputs_missing',
+      gg: /gg recipe update demo --input NAME=FILE/,
+    },
+  ];
+  for (const c of cases) {
+    const kit = await connected(() =>
+      json(
+        { error: { code: c.code, message: 'values needed', fix_hint: 'send {"env":{"API_KEY":"sk-..."}}' } },
+        400,
+      ),
+    );
+    try {
+      const result = await kit.client.callTool({ name: c.tool, arguments: c.args });
+      assert.equal(result.isError, true);
+      assert.match(textOf(result), /\[secrets_not_here\]/, c.tool);
+      assert.match(textOf(result), c.gg, c.tool);
+      assert.doesNotMatch(
+        textOf(result),
+        /API_KEY|"env"|"inputs"/,
+        `${c.tool} passed the engine's hint through`,
+      );
+    } finally {
+      await kit[Symbol.asyncDispose]();
+    }
   }
 });
 

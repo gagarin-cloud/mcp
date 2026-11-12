@@ -26,7 +26,7 @@ two cannot drift.
 | `add_domain` | false | false | true | true | Gives a service a public HTTPS address (DNS and a certificate authority); takes nothing away, and asking twice gives the same address. |
 | `add_resource` | false | true | true | false | Creates a database, cache or bucket; called on one that exists it resizes it or replaces its extension set, so it can replace state. |
 | `alerts` | true | false | true | false | Reads the caller's alert opt-in and recent notifications. |
-| `alerts_off` | false | false | true | false | Records only the caller's own preference not to be notified; no data or access is lost, and the console switch turns it back on. |
+| `alerts_off` | false | true | true | false | Takes away the caller's own outage alerts; the console switch turns them back on. |
 | `backup_resource` | false | false | false | false | Takes a new backup alongside the existing ones; each call makes another. |
 | `backups` | true | false | true | false | Lists a resource's backups. |
 | `billing` | true | false | true | false | Reads balance, burn rate and runway. |
@@ -38,7 +38,6 @@ two cannot drift.
 | `destroy_project` | false | true | true | false | † Deletes a project and everything in it. |
 | `destroy_resource` | false | true | true | false | † Deletes a resource and its data. |
 | `destroy_service` | false | true | true | false | † Deletes a service, its volume and its address. |
-| `eject` | true | false | true | false | Exports a project's manifests for reading. |
 | `history` | true | false | true | false | Reads a service's deploy history (variable names, never values). |
 | `install_recipe` | false | false | true | true | Fills a new, empty project from a recipe another account published; replaces nothing. |
 | `logs` | true | false | true | false | Reads what a service or job printed. |
@@ -63,11 +62,11 @@ two cannot drift.
 | `remove_domain` | false | true | true | true | † Takes a public address off the internet. |
 | `remove_recipe` | false | true | true | true | † Withdraws a published recipe from every other account. |
 | `resource_keys` | true | false | true | false | Lists the variable names a resource publishes — never their values. |
-| `restore_resource` | false | false | false | false | Restores a backup into a new resource; never overwrites one that exists. |
+| `restore_resource` | false | false | true | false | Restores a backup into a new resource and never overwrites one that exists; calling it again with the same arguments is the same restore. |
 | `revoke_credential` | false | true | true | false | Stops a credential working immediately. |
 | `rollback` | false | true | true | false | Replaces what a service runs with an earlier revision. |
 | `rotate_resource` | false | true | false | false | Gagarin mints new credentials for a database or bucket and the old ones stop working; the new ones are never returned. |
-| `run` | false | false | false | false | Starts a new run of a one-off job; each call starts another. |
+| `run` | false | true | false | false | Starts a run of a one-off job; on a job that exists it replaces the image and environment its runs use, and each call starts another. |
 | `set_alerts` | false | false | true | false | Records only the caller's own opt-in to notifications; nothing is lost. |
 | `set_deps` | false | true | true | false | † Replaces a service's dependency set; dropping an edge cuts a connection. |
 | `share` | false | true | true | false | Grants a role on a project, or changes the role somebody already has. |
