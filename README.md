@@ -4,8 +4,8 @@
 
 Add one URL to your agent and it can run your app at a live HTTPS address, give
 it Postgres, Qdrant, Valkey, a queue or a bucket, wire what may reach what, and
-roll back. Alerts, logs, backups and project memory come with it, and nothing is
-deleted without your approval by email. It is Gagarin's API, as tools: 56 of
+roll back. Alerts, logs, metrics, backups and project memory come with it, and nothing is
+deleted without your approval by email. It is Gagarin's API, as tools: 57 of
 them, every one annotated so a client knows which to ask you about first.
 Building and pushing an image needs docker and the source, so that one step is
 `gg ship` on the machine that has them; everything after it is here.

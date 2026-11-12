@@ -366,6 +366,9 @@ wrong:
   then \`rollback\`.
 - A job that did not do its work: \`status\` for the exit code, \`logs\` for the
   run. A week of runs is kept; \`since\` narrows it to the one you mean.
+- A service that is slow, out of memory or throttled, or a disk filling: \`metrics\`
+  for the project, then \`metrics\` with \`service\` and a \`window\` for its history.
+  A null is a figure nobody measured, not a zero.
 - Something that happened earlier: \`logs\` with \`since\`, \`q\` for the line you
   are after, and \`next\` as \`until\` to page back.
 - A call between two services that hangs: \`deps\`. Default-denied looks like a
@@ -383,7 +386,9 @@ wrong:
   my.gagarin.cloud/projects/PROJECT/alerts on the phone that should buzz and
   flip the switch, which allows notifications and opts them in at once — you
   cannot do the first half. Then \`test_alerts\`. \`alerts\` shows their
-  devices and recent notifications.
+  devices and recent notifications. Besides outages they hear when memory or CPU
+  stays at 80% of its limit, a disk passes 85%, or 5xx errors pass 5% of
+  requests; \`metrics\` shows the figures behind them.
 - Everything refused with \`suspended\` or a deploy refused for money:
   \`billing\`. A runway measured in hours is worth telling your human about
   before it becomes an outage.
