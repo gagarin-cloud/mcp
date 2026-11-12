@@ -44,6 +44,7 @@ export const TOOLS_SNAPSHOT: Readonly<Record<string, SnapshotRow>> = {
   memory_search: ['Search project memory', false, false, false, false],
   memory_unlink: ['Unlink memories', false, true, true, false],
   memory_update: ['Update a memory', false, true, true, false],
+  metrics: ['Show metrics', true, false, true, false],
   platform_health: ['Check platform health', true, false, true, false],
   projects: ['List projects', true, false, true, false],
   publish_resource: ['Make bucket public', false, true, true, true],

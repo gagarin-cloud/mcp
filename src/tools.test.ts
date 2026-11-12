@@ -2035,3 +2035,89 @@ test('update_recipe POSTs the update with force, and never inputs', async () => 
     await kit[Symbol.asyncDispose]();
   }
 });
+
+// The project read is passed through as it is; with a service the range read
+// is asked for the window and answered as a summary, not as points.
+test('metrics reads the project, or summarises one service over a window', async () => {
+  const kit = await connected((seen) =>
+    seen.url.includes('/services/')
+      ? json({
+          service: 'web',
+          window: '7d',
+          step: 3600,
+          limits: { memory: 1000, disk: null },
+          series: {
+            memory: [
+              [1, 500],
+              [2, 900],
+              [3, 700],
+            ],
+          },
+        })
+      : json({ services: [{ service: 'web', kind: 'container' }], windows: ['1h', '24h', '7d', '30d'] }),
+  );
+  try {
+    const project = await kit.client.callTool({ name: 'metrics', arguments: { project: 'shop' } });
+    assert.equal(kit.seen[0]?.url, 'https://api.example/v1/projects/shop/metrics');
+    assert.match(textOf(project), /"services"/);
+
+    const one = await kit.client.callTool({
+      name: 'metrics',
+      arguments: { project: 'shop', service: 'web', window: '7d' },
+    });
+    assert.equal(kit.seen[1]?.url, 'https://api.example/v1/projects/shop/services/web/metrics?window=7d');
+    const body = JSON.parse(textOf(one));
+    assert.equal(body.series.memory.peak, 900);
+    assert.equal(body.series.memory.last, 700);
+    assert.equal(body.series.memory.last_at, 3);
+    assert.equal(body.series.memory.peak_pct_of_limit, 90);
+    assert.equal(body.series.memory.unit, 'bytes');
+    assert.equal(body.series.points, undefined);
+
+    await kit.client.callTool({ name: 'metrics', arguments: { project: 'shop', service: 'web' } });
+    assert.equal(kit.seen[2]?.url, 'https://api.example/v1/projects/shop/services/web/metrics');
+
+    const bad = await kit.client.callTool({
+      name: 'metrics',
+      arguments: { project: 'shop', service: 'web', window: '2h' },
+    });
+    assert.ok(bad.isError, 'a window the engine does not know is refused before it is sent');
+    assert.equal(kit.seen.length, 3);
+
+    // A window without a service would be the project's figures now, read as history.
+    const projectWindow = await kit.client.callTool({
+      name: 'metrics',
+      arguments: { project: 'shop', window: '7d' },
+    });
+    assert.ok(projectWindow.isError);
+    assert.match(textOf(projectWindow), /\[window_needs_service\]/);
+    assert.equal(kit.seen.length, 3, 'refused before it is sent');
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('metrics_unavailable reaches the agent with its code', async () => {
+  const kit = await connected(() =>
+    json({ error: { code: 'metrics_unavailable', message: 'store down', fix_hint: 'try again' } }, 503),
+  );
+  try {
+    const r = await kit.client.callTool({ name: 'metrics', arguments: { project: 'shop' } });
+    assert.ok(r.isError);
+    assert.match(textOf(r), /\[metrics_unavailable\]/);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
+test('the alerts tool lists the resource alerts', async () => {
+  const kit = await connected(() => json({}));
+  try {
+    const { tools } = await kit.client.listTools();
+    const d = String(tools.find((t) => t.name === 'set_alerts')!.description);
+    for (const kind of ['memory_high', 'cpu_high', 'disk_high', 'errors_high'])
+      assert.ok(d.includes(kind), kind);
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});

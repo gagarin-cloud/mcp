@@ -50,6 +50,7 @@ two cannot drift.
 | `memory_search` | false | false | false | false | What a search returns counts toward ranking, so it writes as it reads. |
 | `memory_unlink` | false | true | true | false | Removes a link between memories. |
 | `memory_update` | false | true | true | false | Overwrites a memory's fields, or archives it. |
+| `metrics` | true | false | true | false | Reads CPU, memory, disk and traffic figures; summarises, never writes. |
 | `platform_health` | true | false | true | false | Reads Gagarin's own status. |
 | `projects` | true | false | true | false | Lists the caller's projects. |
 | `publish_resource` | false | true | true | true | Makes a bucket readable by anyone on the internet, which cannot be recalled. |

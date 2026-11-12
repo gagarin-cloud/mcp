@@ -32,6 +32,7 @@ import type { McpServer, ToolCallback } from '@modelcontextprotocol/sdk/server/m
 import { z } from 'zod';
 
 import { Api, ApiFailure } from './api.js';
+import { summarizeRange, type RangeRead } from './metrics.js';
 
 /**
  * Escape one value for use as a single path segment.
@@ -803,6 +804,55 @@ export function registerTools(server: McpServer, api: Api): void {
   );
 
   tool(
+    'metrics',
+    {
+      title: 'Show metrics',
+      description:
+        "How hard a project's services are working: CPU, memory, disk, network and, for services with a " +
+        'public address, requests, 5xx errors and p95 latency. Use it when something is slow, running out ' +
+        'of memory, throttled, or a disk is filling — before guessing from logs. Without `service` it is the ' +
+        'whole project at once, one entry per service, with the current figure and its limit. With ' +
+        '`service` it is that service over `window` (1h, 24h by default, 7d or 30d), summarised per series ' +
+        'as `last` (taken at `last_at`, unix seconds), `avg`, `peak`, the `limit` and `peak_pct_of_limit`, ' +
+        'with the unit named — not raw points. `window` without `service` is refused `window_needs_service`. ' +
+        'Units: CPU in cores, memory and disk in bytes, throttled and errors as fractions 0..1, network in ' +
+        'bytes/s, requests in req/s, latency in seconds. Any figure is null (or its series absent) when it ' +
+        'was not measured, which is not the same as zero; HTTP figures exist only for services with a public ' +
+        'address. Refused `metrics_unavailable` when the metrics store does not answer: try again shortly.',
+      inputSchema: {
+        project,
+        service: service
+          .optional()
+          .describe('one service, for its history over the window; absent means every service now'),
+        window: z
+          .enum(['1h', '24h', '7d', '30d'])
+          .optional()
+          .describe('how far back, with `service`. Absent means 24h.'),
+      },
+      annotations: reads('Show metrics'),
+    },
+    ({ project, service, window }) =>
+      attempt(async () => {
+        if (service === undefined) {
+          // The project read is figures now; a window here would be silently
+          // ignored and read as history it is not.
+          if (window !== undefined) {
+            throw new ApiFailure(400, {
+              code: 'window_needs_service',
+              message: "window is for one service's history; without service the answer is every service now",
+              fix_hint: 'name the service to read it over the window, or leave window out',
+            });
+          }
+          return api.call(`/v1/projects/${seg(project)}/metrics`);
+        }
+        const read = await api.call<RangeRead>(
+          `/v1/projects/${seg(project)}/services/${seg(service)}/metrics${qs({ window })}`,
+        );
+        return summarizeRange(read);
+      }),
+  );
+
+  tool(
     'history',
     {
       title: 'Show deploy history',
@@ -1284,7 +1334,9 @@ export function registerTools(server: McpServer, api: Api): void {
         'once. Use this only when they already have a device. It is per member: it says nothing about anyone ' +
         'else. Once on, the engine notifies when a service has been down for three minutes, when a ' +
         'deploy will not start, and when a container crashes and restarts — once when it starts ' +
-        'and once when it ends. Notifications arrive in the my.gagarin.cloud console, installed ' +
+        'and once when it ends — and when a service runs hot: memory or CPU at 80% of its limit for ' +
+        'minutes (memory_high, cpu_high), a disk 85% full (disk_high), or 5% of requests failing with ' +
+        '5xx (errors_high); each says so again when it clears. `metrics` shows the figures behind them. Notifications arrive in the my.gagarin.cloud console, installed ' +
         'as an app or open in a browser, on each device your human allows them in. A device is ' +
         'added from a browser at https://my.gagarin.cloud/projects/PROJECT/alerts, which an agent ' +
         'cannot do, so tell your human to open it. The result says how many devices there are; ' +
