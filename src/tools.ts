@@ -113,6 +113,50 @@ function besides(err: ApiFailure): string {
   return `\n${JSON.stringify(extra, null, 2)}`;
 }
 
+/**
+ * The refusal for anything that would put a secret through this server.
+ *
+ * No tool here takes or returns a credential: not a resource's password, not a
+ * third party's API key, not a gagarin token. Whatever needs one is done with
+ * `gg` on a machine that has the file, which reads it from there and writes
+ * what it mints to a file or a secret store, so the value is never in a
+ * transcript. The hint is that command, for the human to run.
+ */
+function secretsGoThroughGg(why: string, command: string, after = ''): ApiFailure {
+  return new ApiFailure(400, {
+    code: 'secrets_not_here',
+    message: `${why}: secrets never pass through these tools`,
+    fix_hint:
+      `ask your human to run \`${command}\` on a machine that has the file, without printing the values` +
+      (after ? `. ${after}` : ''),
+  });
+}
+
+/**
+ * A call whose refusal, as the engine words it, would ask for a secret.
+ *
+ * The engine writes its hints for `gg` and the console, where sending the
+ * values is the next step: `env_required` says to send `{"env":{"API_KEY":…}}`,
+ * `inputs_missing` to send `{"inputs":…}`. Passed through here they would ask an
+ * agent for the one thing this server must not carry, through a parameter it no
+ * longer has. Those codes become `secrets_not_here`, naming the gg command.
+ */
+async function refusingSecrets(call: Promise<unknown>, code: string, refusal: () => ApiFailure) {
+  try {
+    return await call;
+  } catch (err) {
+    if (err instanceof ApiFailure && err.error.code === code) throw refusal();
+    throw err;
+  }
+}
+
+/** Only the named fields of an engine answer: what a tool decided to say, and
+ *  nothing the engine adds later. */
+function pick(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  const from = (value ?? {}) as Record<string, unknown>;
+  return Object.fromEntries(keys.filter((k) => k in from).map((k) => [k, from[k]]));
+}
+
 /** Run a tool body, and turn any gagarin failure into the contract above. */
 async function attempt(fn: () => Promise<unknown>): Promise<ToolResult> {
   try {
@@ -182,14 +226,10 @@ function qs(params: Record<string, string | number | boolean | readonly string[]
     access to it, even when the opposite call would put it back: a deploy
     replaces what is running, `unshare` takes a person's access. `writes` is
     kept for calls that only add. A hint is static and covers the call's worst
-    case, so a tool is destructive when any of its arguments make it so.
-    Memory is the exception: it is the agents' own notebook, written on every
-    session, and nothing in it is lost — a superseded or archived memory is
-    kept and still readable, and a link can be made again. Confirming each
-    note would teach people to stop keeping them. `add_resource` is not
-    destructive either, because dropping an extension is refused rather than
-    allowed to lose data. Nor is `alerts_off`, which touches only the caller
-    and which the console switch undoes.
+    case, so a tool is destructive when any of its arguments make it so:
+    `remember` can supersede a memory, `add_resource` resizes one that
+    exists. There are no exceptions, memory included: `alerts_off` is
+    destructive because it takes away the caller's outage alerts.
   - `openWorldHint` for a call that reaches past the caller's account — puts
     something on the public internet or before other accounts, or takes in
     what another account published. `OPEN_WORLD` below is the list, and each
@@ -284,11 +324,17 @@ export const APPROVAL_REQUIRED: ReadonlySet<string> = new Set([
  * nothing can recall, so a client should confirm it; `unpublish_resource` is its
  * pair and is classed with it so the two read as one decision. Neither goes
  * through `requireElevation` — the editor role is the whole of the gate.
+ *
+ * The rest replace something without taking it away for good, so the engine
+ * lets them through: a job's next runs, a resource's size, a memory's text,
+ * the caller's own alerts. A client should still confirm them, which is all the
+ * hint asks.
  */
 export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
   // Replace what is running: the environment, the image, or both.
   'deploy',
   'rollback',
+  'run',
   // Give or take a person's access to a whole project; `untransfer` withdraws
   // an ownership offer somebody may be about to accept.
   'share',
@@ -299,6 +345,15 @@ export const DESTRUCTIVE_WITHOUT_APPROVAL: ReadonlySet<string> = new Set([
   'revoke_credential',
   'rotate_resource',
   'unpublish_resource',
+  // Resizes a resource that exists, and replaces a postgres's extension set.
+  'add_resource',
+  // Stops the caller being told when a service goes down.
+  'alerts_off',
+  // Supersede, overwrite, archive or unlink a memory, or replace a link's note.
+  'memory_link',
+  'memory_unlink',
+  'memory_update',
+  'remember',
 ]);
 
 /**
@@ -375,19 +430,32 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Show current account',
       description:
-        'Which Gagarin account this server is acting as, what the credential may do, and the ' +
-        'registry and base domain to build addresses from. Run this first in any session: it is ' +
-        'the one call that distinguishes "no credential" from "a credential that cannot deploy".',
+        'Whether this server has a credential, what it may do, when the account was made, and ' +
+        'the registry and base domain to build addresses from. Run this first in any session: it ' +
+        'is the one call that distinguishes "no credential" from "a credential that cannot ' +
+        'deploy". It does not name the person: no task here needs their email.',
       inputSchema: {},
       annotations: reads('Show current account'),
       // Deliberately not marked `_meta["openai/profile"]`, ChatGPT's "this tool
       // says whose account this is". That marker is a contract — an outputSchema
       // and structuredContent with a stable opaque `id` — and the engine's
-      // /v1/whoami answers an email, which the contract says is display, not
-      // identity. ChatGPT connects several accounts without a profile tool; it
-      // just cannot label them. Add it when the engine exposes a user id.
+      // /v1/whoami has no id to give. Add it when the engine exposes one.
     },
-    () => attempt(() => api.call('/v1/whoami')),
+    // The engine's answer without `account`, the email `gg whoami` shows its
+    // owner. Every session calls this first, and nothing an agent does here
+    // takes the caller's own address. Named rather than subtracted, so a field
+    // the engine adds later is not handed to every conversation by default.
+    () =>
+      attempt(async () =>
+        pick(await api.call('/v1/whoami'), [
+          'can',
+          'client',
+          'account_created_at',
+          'registry',
+          'base_domain',
+          'platform',
+        ]),
+      ),
   );
 
   tool(
@@ -467,25 +535,11 @@ export function registerTools(server: McpServer, api: Api): void {
         'carries no environment values, at any role: a service lists the names it was deployed ' +
         'with as `env_keys` — what a redeploy has to restate — and never their values. It does ' +
         "not carry a resource's environment either: what a resource publishes by name is " +
-        '`resource_keys`, and the values are `resource_secrets`.',
+        '`resource_keys`, and no tool here returns the values.',
       inputSchema: { project },
       annotations: reads('Show project status'),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/status`)),
-  );
-
-  tool(
-    'eject',
-    {
-      title: 'Export project manifests',
-      description:
-        'The Kubernetes manifests, Dockerfiles and connection details for a whole project, so it ' +
-        "can be run somewhere else. Owner only: what comes back includes every service's " +
-        'environment in the clear.',
-      inputSchema: { project },
-      annotations: reads('Export project manifests'),
-    },
-    ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/eject`)),
   );
 
   // ─── services ────────────────────────────────────────────────────────────
@@ -507,8 +561,9 @@ export function registerTools(server: McpServer, api: Api): void {
         'deploy that forgets to mention them. That also means you cannot change one variable ' +
         'without holding them all. `status` and `history` name the variables (`env_keys`) but never ' +
         'return their values, so if you were not given the environment, do NOT reconstruct it or ' +
-        'redeploy with a guess — every key you leave out is deleted. Put the value in an ' +
-        '`external` resource instead, where `rotate_resource` changes one key on its own. ' +
+        'redeploy with a guess — every key you leave out is deleted. **Env is for configuration, ' +
+        'never a secret**: a password, token or API key belongs in an `external` resource your ' +
+        'human makes with `gg`, which the service declares in `deps`. ' +
         '**A volume must be ' +
         'restated too**, and for the ' +
         'opposite reason: it cannot be changed, so a service that has one is refused ' +
@@ -529,7 +584,10 @@ export function registerTools(server: McpServer, api: Api): void {
         env: z
           .record(z.string())
           .optional()
-          .describe('the complete environment. Absent empties it — this field is not merged.'),
+          .describe(
+            'the complete environment: configuration only, never a secret (those reach the ' +
+              'service from an `external` in `deps`). Absent empties it — this field is not merged.',
+          ),
         digest: z
           .string()
           .optional()
@@ -624,7 +682,10 @@ export function registerTools(server: McpServer, api: Api): void {
         env: z
           .record(z.string())
           .optional()
-          .describe('the complete environment for this run. Absent empties it — not merged.'),
+          .describe(
+            'the complete environment for this run: configuration only, never a secret (those ' +
+              'reach it from an `external` in `deps`). Absent empties it — not merged.',
+          ),
         digest: z
           .string()
           .optional()
@@ -686,7 +747,7 @@ export function registerTools(server: McpServer, api: Api): void {
               'not a recognized IANA zone name.',
           ),
       },
-      annotations: writes('Run job', { idempotent: false }),
+      annotations: destroys('Run job', { idempotent: false }),
     },
     ({ project, service, ...body }) =>
       attempt(() =>
@@ -919,25 +980,17 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Add resource',
       description:
-        'Something Gagarin runs on your behalf — a database, a cache, a vector store — or an ' +
-        '`external`, a row that runs nothing and only publishes values. You name it and say ' +
-        'how big; the platform decides the rest. If a type exists, use it rather than deploying ' +
-        'your own; the refusal from an unknown type names the ones there are. Nothing reaches it ' +
-        'until a service declares it in `deps`. ' +
-        '**Use an `external` for third-party credentials AND for shared configuration** — a ' +
-        'feature flag, a log level, a region, an API base URL — anything more than one service ' +
-        'reads, or that should change without a deploy. An env passed to a deploy is a copy, so ' +
-        'two services sharing a setting is two copies that can disagree and two deploys to change ' +
-        'it; an external is one row, changed with `rotate_resource` (`set`/`unset` for one key), ' +
-        'undone with `rollback`, and every holder is restarted for it. Config owned by a single ' +
-        'service stays in its deploy env, because that is the half a service rollback restores. ' +
-        "**The decisive difference when you do not have the user's env file:** a service's " +
-        'environment can only be changed by `deploy`, which replaces it wholesale, so changing one ' +
-        'variable means having all of them. An external takes a single key. If a user asks you to ' +
-        'change a setting and you were not given their environment, an external is the answer — ' +
-        'and if that setting currently lives in a deploy env, say so and offer to move it. ' +
-        'Keys are published under the resource name — `config` holding LOG_LEVEL publishes ' +
-        'CONFIG_LOG_LEVEL — so name the resource for how the application wants to read it. ' +
+        'Something Gagarin runs on your behalf — a database, a cache, a vector store. You name it ' +
+        'and say how big; the platform decides the rest. If a type exists, use it rather than ' +
+        'deploying your own; the refusal from an unknown type names the ones there are. Nothing ' +
+        'reaches it until a service declares it in `deps`, which hands its credentials to the ' +
+        'service without them ever passing through you. Called on a resource that exists, it ' +
+        'resizes it or replaces its extension set. ' +
+        "An `external` — a row that only publishes values, such as a third party's API key — is " +
+        'not made here, because its values are usually secrets and **these tools never carry a ' +
+        'secret**. Your human makes or changes one with `gg resource add PROJECT/NAME external ' +
+        '--env-file FILE` on a machine that has the file; once it exists it is declared in `deps` ' +
+        'like any other resource. ' +
         'An `s3` bucket is private until `publish_resource` says otherwise. A `rabbitmq` is a private ' +
         'message broker (queues and exchanges over AMQP 0-9-1, with its management UI on 15672); ' +
         'it is **not backed up**, so the application should declare its own queues and publish ' +
@@ -950,9 +1003,7 @@ export function registerTools(server: McpServer, api: Api): void {
       inputSchema: {
         project,
         resource,
-        type: z
-          .string()
-          .describe('what to provision, e.g. postgres, valkey, qdrant, iggy, rabbitmq, s3 or external'),
+        type: z.string().describe('what to provision, e.g. postgres, valkey, qdrant, iggy, rabbitmq or s3'),
         size: z
           .string()
           .optional()
@@ -962,13 +1013,6 @@ export function registerTools(server: McpServer, api: Api): void {
           .int()
           .optional()
           .describe('how big its volume may get. Fixed at creation, like every volume. Refused for s3.'),
-        env: z
-          .record(z.string())
-          .optional()
-          .describe(
-            'the values an `external` publishes to whatever declares it. Refused for every other ' +
-              "type, whose credentials are Gagarin's to mint rather than yours to choose.",
-          ),
         extensions: z
           .array(z.string())
           .optional()
@@ -1002,15 +1046,23 @@ export function registerTools(server: McpServer, api: Api): void {
               'timescaledb, raster, dblink and the foreign-data wrappers, untrusted languages.',
           ),
       },
-      annotations: writes('Add resource', { idempotent: true }),
+      annotations: destroys('Add resource', { idempotent: true }),
     },
     ({ project, resource, ...body }) =>
-      attempt(() =>
-        api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}`, {
+      attempt(async () => {
+        // The engine would answer `invalid_env` with a hint to send the values,
+        // which is the one thing this server must not ask for.
+        if (body.type === 'external') {
+          throw secretsGoThroughGg(
+            'an external resource holds values this server does not carry',
+            `gg resource add ${project}/${resource} external --env-file FILE`,
+          );
+        }
+        return api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}`, {
           method: 'PUT',
           body,
-        }),
-      ),
+        });
+      }),
   );
 
   tool(
@@ -1068,12 +1120,10 @@ export function registerTools(server: McpServer, api: Api): void {
       title: 'List resource keys',
       description:
         'The variable names a resource publishes to whatever declares it — and no values. ' +
-        '**Prefer this over `resource_secrets` unless you actually need a value.** It answers the ' +
-        'question you usually have: what is in this bundle, and what is a key called, before you ' +
-        'change one of them with `rotate_resource` — an external might publish API_KEY or TOKEN ' +
-        'and only this says which. The values are never fetched, so nothing secret enters this ' +
-        'conversation; `status` will not tell you either, since it reports only that the resource ' +
-        'publishes NAME_*.',
+        'No tool here returns the values. It answers the question you usually have: what is in ' +
+        'this bundle, and what is a key called — an external might publish API_KEY or TOKEN and ' +
+        'only this says which. `status` will not tell you, since it reports only that the ' +
+        'resource publishes NAME_*.',
       inputSchema: { project, resource },
       annotations: reads('List resource keys'),
     },
@@ -1082,85 +1132,35 @@ export function registerTools(server: McpServer, api: Api): void {
   );
 
   tool(
-    'resource_secrets',
-    {
-      title: 'Show resource secrets',
-      description:
-        'The host, port, user, password and URL a client would need. For reading, and for ' +
-        'something outside the project: a service inside it should declare the resource in `deps` ' +
-        'instead, which hands the same values over without anybody copying a password. ' +
-        '**This returns live credentials into this conversation, so call it only when a value is ' +
-        'what you need** — to hand a connection string to something outside the project, or to ' +
-        'verify a rotation. If you only need to know what the resource publishes, or what a key ' +
-        'is called, that is `resource_keys` and it returns no values.',
-      inputSchema: { project, resource },
-      annotations: reads('Show resource secrets'),
-    },
-    ({ project, resource }) =>
-      attempt(() => api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/secrets`)),
-  );
-
-  tool(
     'rotate_resource',
     {
       title: 'Rotate resource credentials',
       description:
-        'New credentials, and everything holding them rolls to pick them up. For an `external` ' +
-        "the new values are yours to supply and required; for everything else they are Gagarin's " +
-        'to mint and supplying them is refused. An `external` usually holds several values, and ' +
-        'there are two ways to change them: `set`/`unset` change the keys you name and leave the ' +
-        'rest exactly as they are, while `env` says the bundle is now precisely this and drops ' +
-        'every key not in it. **Reach for `set` when one key is being replaced** — `env` with a ' +
-        'single key would take the others away from every dependent. The answer names what ' +
-        'changed and what stopped being published, so read `removed` before reporting success. ' +
-        'For `s3`, the old key is revoked at once and dependents restart, so their S3 calls fail ' +
-        'for those seconds; if `old_credential_revoked` is false the old key still works — say so, ' +
-        'and call this again, which revokes it first.',
-      inputSchema: {
-        project,
-        resource,
-        env: z
-          .record(z.string())
-          .optional()
-          .describe(
-            'everything the resource should publish from now on, replacing what is there. ' +
-              'Required for an `external` unless set/unset is given, refused for every other type. ' +
-              'Anything omitted stops being published.',
-          ),
-        set: z
-          .record(z.string())
-          .optional()
-          .describe(
-            'change these values and leave every other key alone. What to use when one secret of ' +
-              'several is being rotated. `external` only, and not combinable with env.',
-          ),
-        unset: z
-          .array(z.string())
-          .optional()
-          .describe(
-            'stop publishing these keys, named without the resource prefix. Refused if the ' +
-              'resource does not publish one of them, so a mistyped name fails rather than ' +
-              'silently doing nothing. `external` only, and not combinable with env.',
-          ),
-      },
+        'New credentials for a resource Gagarin runs — a postgres, valkey, qdrant, iggy, rabbitmq ' +
+        'or s3 — minted by Gagarin, and everything holding them rolls to pick them up. The new ' +
+        'values are never returned: dependents receive them through `deps`. For `s3`, the old key ' +
+        'is revoked at once and dependents restart, so their S3 calls fail for those seconds; if ' +
+        '`old_credential_revoked` is false the old key still works — say so, and call this again, ' +
+        'which revokes it first. An `external` holds values only your human supplies, and **these ' +
+        'tools never carry a secret**: changing one is `gg resource rotate PROJECT/NAME ' +
+        '--env-file FILE`, run by them on a machine that has the file.',
+      inputSchema: { project, resource },
       annotations: destroys('Rotate resource credentials', { idempotent: false }),
     },
-    ({ project, resource, env, set, unset }) =>
+    ({ project, resource }) =>
       attempt(() =>
-        api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/rotate`, {
-          method: 'POST',
-          // Sent as given, including the combination the engine refuses. The
-          // server owns that rule and states it in a sentence a model can act
-          // on; a second copy here would be one more place for it to drift, and
-          // dropping half the request to make it valid would be worse than
-          // either — the caller would be told a rotation succeeded that was not
-          // the one they asked for.
-          body: {
-            ...(env ? { env } : {}),
-            ...(set ? { set } : {}),
-            ...(unset ? { unset } : {}),
-          },
-        }),
+        refusingSecrets(
+          api.call(`/v1/projects/${seg(project)}/resources/${seg(resource)}/rotate`, {
+            method: 'POST',
+            body: {},
+          }),
+          'env_required',
+          () =>
+            secretsGoThroughGg(
+              'an external resource holds values only your human supplies',
+              `gg resource rotate ${project}/${resource} --env-file FILE`,
+            ),
+        ),
       ),
   );
 
@@ -1236,7 +1236,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .optional()
           .describe("how big the new resource's volume may get. Fixed at creation, like every volume."),
       },
-      annotations: writes('Restore backup into a new resource', { idempotent: false }),
+      annotations: writes('Restore backup into a new resource', { idempotent: true }),
     },
     ({ project, resource, source, backup, size, storage_gb }) =>
       attempt(() =>
@@ -1318,7 +1318,7 @@ export function registerTools(server: McpServer, api: Api): void {
         "Opts the caller out of a project's alerts; other members' are untouched. The console's alerts " +
         'switch turns them back on.',
       inputSchema: { project },
-      annotations: writes('Turn off project alerts', { idempotent: true }),
+      annotations: destroys('Turn off project alerts', { idempotent: true }),
     },
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}/alerts`, { method: 'DELETE' })),
   );
@@ -1452,16 +1452,35 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'Show referrals',
       description:
-        "The account's invite link and code, the terms, and who has signed up through it — " +
-        'display name, joined date, what they topped up, what the account earned from it, and ' +
-        'when the earning window ends. Only an account that has topped up at least once can ' +
-        'invite: before that, eligible is false and there is no link. Earnings are balance ' +
-        "credit, never cash. Read-only and the caller's own: invited users are never named " +
-        'beyond a GitHub login or masked email.',
+        "The account's invite link and code, the terms, and each signup through it — joined " +
+        'date, what they topped up, what the account earned from it, and when the earning ' +
+        'window ends. Only an account that has topped up at least once can invite: before that, ' +
+        'eligible is false and there is no link. Earnings are balance credit, never cash. ' +
+        "Signups are never named: who they are is theirs, not this conversation's.",
       inputSchema: {},
       annotations: reads('Show referrals'),
     },
-    () => attempt(() => api.call('/v1/referrals')),
+    // Each signup without `display`, its GitHub login or masked email: the
+    // question this answers is what the link earned, which needs no names, and
+    // the people it names never chose to be read into somebody's chat. Named
+    // rather than subtracted, like whoami.
+    () =>
+      attempt(async () => {
+        const answer = (await api.call('/v1/referrals')) as { invited?: unknown[] };
+        return {
+          ...answer,
+          invited: answer.invited?.map((row) =>
+            pick(row, [
+              'joined_at',
+              'window_ends_at',
+              'earning',
+              'status',
+              'topped_up_micro_usd',
+              'earned_micro_usd',
+            ]),
+          ),
+        };
+      }),
   );
 
   // ─── credentials ─────────────────────────────────────────────────────────
@@ -1471,42 +1490,14 @@ export function registerTools(server: McpServer, api: Api): void {
     {
       title: 'List credentials',
       description:
-        'Every credential, what it may do, when it was last used and when it expires. The one ' +
-        'making this very call is marked `current`.',
+        'Every credential, what it may do, when it was last used and when it expires — never its ' +
+        'secret. The one making this very call is marked `current`. A new one, for a pipeline, ' +
+        'is minted by your human with `gg creds create`, piped straight into the secret store it ' +
+        'is for, because no tool here hands out a secret.',
       inputSchema: {},
       annotations: reads('List credentials'),
     },
     () => attempt(() => api.call('/v1/credentials')),
-  );
-
-  tool(
-    'create_credential',
-    {
-      title: 'Create credential',
-      description:
-        'Issues a second credential from this one, for a pipeline that has no inbox to approve ' +
-        'anything with. It can deploy and nothing else, it expires, and it cannot mint another — ' +
-        'none of which are parameters. The secret comes back once and is never readable again, so ' +
-        'put it straight into the secret store it is for. A credential that was itself minted ' +
-        'cannot call this.',
-      inputSchema: {
-        name: z
-          .string()
-          .describe(
-            'what you will read months from now when deciding whether this is still wanted, ' +
-              'e.g. "github actions: acme/web"',
-          ),
-        expires_in_days: z.number().int().optional().describe('1 to 365. Absent takes the default.'),
-      },
-      annotations: writes('Create credential', { idempotent: false }),
-    },
-    ({ name, expires_in_days }) =>
-      attempt(() =>
-        api.call('/v1/credentials', {
-          method: 'POST',
-          body: { name, ...(expires_in_days ? { expires_in_days } : {}) },
-        }),
-      ),
   );
 
   tool(
@@ -1727,7 +1718,7 @@ export function registerTools(server: McpServer, api: Api): void {
         force: z.boolean().optional().describe('save even beside a near-duplicate. Almost never right.'),
         source: z.string().optional().describe('who or what wrote it, e.g. the agent and session'),
       },
-      annotations: writes('Save a memory', { idempotent: false }),
+      annotations: destroys('Save a memory', { idempotent: false }),
     },
     ({ project, ...body }) =>
       attempt(async () =>
@@ -1774,7 +1765,7 @@ export function registerTools(server: McpServer, api: Api): void {
             'it is probably wrong: marks it ⚠ and lowers its rank until it is confirmed, edited or archived',
           ),
       },
-      annotations: writes('Update a memory', { idempotent: true }),
+      annotations: destroys('Update a memory', { idempotent: true }),
     },
     ({ project, id, ...body }) =>
       attempt(async () => {
@@ -1829,7 +1820,7 @@ export function registerTools(server: McpServer, api: Api): void {
         to: z.array(memoryId).describe('the memories to link it with'),
         note: z.string().optional().describe('why they relate, one short line. Not encrypted.'),
       },
-      annotations: writes('Link memories', { idempotent: true }),
+      annotations: destroys('Link memories', { idempotent: true }),
     },
     ({ project, id, ...body }) =>
       attempt(async () =>
@@ -1845,7 +1836,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'Removes the link between two memories. Undirected, so the order of the two does not ' +
         'matter; removing a link that is not there changes nothing. Needs editor.',
       inputSchema: { project, id: memoryId, other: memoryId.describe('the memory at the other end') },
-      annotations: writes('Unlink memories', { idempotent: true }),
+      annotations: destroys('Unlink memories', { idempotent: true }),
     },
     ({ project, id, other }) =>
       attempt(async () =>
@@ -1919,13 +1910,6 @@ export function registerTools(server: McpServer, api: Api): void {
     ({ project }) => attempt(() => api.call(`/v1/projects/${seg(project)}`, { method: 'DELETE' })),
   );
   // ─── recipes ─────────────────────────────────────────────────────────────
-
-  const recipeInputs = z
-    .record(z.string(), z.record(z.string(), z.string()))
-    .describe(
-      'one object per input the recipe declares, keyed by the input name, each holding that ' +
-        "input's variables by name. Values go into external resources and are stored nowhere else",
-    );
 
   const recipePath = (recipe: string, version?: string): string =>
     version === undefined
@@ -2002,9 +1986,12 @@ export function registerTools(server: McpServer, api: Api): void {
       description:
         'Deploy a recipe into a project. Create the project first with `create_project`: a recipe ' +
         'only goes into a new, empty project. Call once to start the copy (202, state `copying`); ' +
-        'poll `recipe_install` until the state is `copied`; then call again WITH `inputs` (one ' +
-        'object per declared input, keys are its variable names) to install. The values go into ' +
-        'external resources and are never stored anywhere else. Errors to branch on: ' +
+        'poll `recipe_install` until the state is `copied`; then call again to install. This ' +
+        'installs only a recipe that declares no inputs: an input is an external resource whose ' +
+        'values are usually secrets, and **these tools never carry a secret**. When `recipe` ' +
+        'lists inputs, do not create the project — hand the whole install to your human: ' +
+        '`gg recipe install RECIPE NEW_PROJECT --input NAME=FILE`, one env file per input, on a ' +
+        'machine that has the files; gg never prints the values. Errors to branch on: ' +
         '`project_not_empty`, `inputs_missing`, `payment_required`, `project_has_recipe` (409: the ' +
         'project already has a recipe installed; use `update_recipe` to move it), ' +
         '`recipe_install_in_progress` (409: a copy or install is already running; poll ' +
@@ -2013,12 +2000,22 @@ export function registerTools(server: McpServer, api: Api): void {
         project,
         recipe: z.string().describe('recipe id'),
         version: z.string().optional().describe('version to install; the latest when omitted'),
-        inputs: recipeInputs.optional(),
       },
       annotations: writes('Install recipe', { idempotent: true, openWorld: true }),
     },
     ({ project, ...body }) =>
-      attempt(() => api.call(`/v1/projects/${seg(project)}/recipe`, { method: 'POST', body })),
+      attempt(() =>
+        refusingSecrets(
+          api.call(`/v1/projects/${seg(project)}/recipe`, { method: 'POST', body }),
+          'inputs_missing',
+          () =>
+            secretsGoThroughGg(
+              'this recipe needs inputs',
+              `gg recipe install ${body.recipe} NEW_PROJECT --input NAME=FILE`,
+              `gg makes its own project, so ${project} stays empty; \`destroy_project\` removes it`,
+            ),
+        ),
+      ),
   );
 
   tool(
@@ -2085,8 +2082,9 @@ export function registerTools(server: McpServer, api: Api): void {
       description:
         'Move a project to a newer version of its recipe. Run `recipe_diff` first and show your ' +
         'human. Two steps like `install_recipe` when new images must be copied: the first call ' +
-        'starts the copy, poll `recipe_install`, then call again (with `inputs` for any new ' +
-        'input). `update_conflict` means the deployer changed something the recipe also changes: ' +
+        'starts the copy, poll `recipe_install`, then call again. A version that declares a new ' +
+        'input needs its values, which these tools never carry: hand that update to your human ' +
+        'as `gg recipe update PROJECT --input NAME=FILE`. `update_conflict` means the deployer changed something the recipe also changes: ' +
         'show the diff and ask before passing `force`. Expect `approval_required` when the update ' +
         'removes something: the call completes only when the account owner clicks the button ' +
         'emailed to them, so explain the pause to your user instead of retrying.',
@@ -2097,11 +2095,17 @@ export function registerTools(server: McpServer, api: Api): void {
           .boolean()
           .optional()
           .describe("take the recipe's side on conflicts; only after your human agrees"),
-        inputs: recipeInputs.optional(),
       },
       annotations: destroys('Update recipe', { idempotent: false, openWorld: true }),
     },
     ({ project, ...body }) =>
-      attempt(() => api.call(`/v1/projects/${seg(project)}/recipe/update`, { method: 'POST', body })),
+      attempt(() =>
+        refusingSecrets(
+          api.call(`/v1/projects/${seg(project)}/recipe/update`, { method: 'POST', body }),
+          'inputs_missing',
+          () =>
+            secretsGoThroughGg('this version needs inputs', `gg recipe update ${project} --input NAME=FILE`),
+        ),
+      ),
   );
 }
