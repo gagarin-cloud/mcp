@@ -1059,7 +1059,7 @@ export function registerTools(server: McpServer, api: Api): void {
           .optional()
           .describe(
             'the same envelope word a service takes. Changeable later. Refused for s3. For a ' +
-              'postgres it also sets the settings: at most 75, 140 or 150 connections at s, m or l, ' +
+              'postgres it also sets the settings: at most 60, 105 or 119 connections at s, m or l, ' +
               'applied in the restart a resize already costs.',
           ),
         storage_gb: z
