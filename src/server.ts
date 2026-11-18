@@ -42,8 +42,8 @@ Nine things that are true of every call here:
    or push one — that needs docker and the source, so it happens on a machine
    with \`gg ship\`. \`deploy\` runs an image that is already there.
 4. A deploy replaces the environment and nothing else. Restate every variable
-   every time; the domain, the size and the dependencies survive a deploy that
-   forgets to mention them. The volume is the exception in the other direction —
+   every time; the domain, the size, the replica count and the dependencies
+   survive a deploy that forgets to mention them. The volume is the opposite —
    it is immutable, so a service that has one must be given the same
    \`volume_path\` and \`volume_size_gb\` on every deploy or the deploy is refused
    \`volume_immutable\`. \`status\` says what they are.

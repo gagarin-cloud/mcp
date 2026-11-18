@@ -526,7 +526,7 @@ export function registerTools(server: McpServer, api: Api): void {
         'a demand, it did not watch it come true — so this is what you check afterwards. Carries ' +
         '`cluster` (where the project runs, e.g. `fr-par-1`), every service and resource, its ' +
         'addresses (generated ones look like ' +
-        '`<service>-<project>.<cluster>.apps.gagarin.cloud`), its size, whether it is in sync, and what the ' +
+        '`<service>-<project>.<cluster>.apps.gagarin.cloud`), its size and replica range (`min_replicas`, `max_replicas`), whether it is in sync, and what the ' +
         'project has cost since midnight UTC. A job has none of the service vocabulary — no ' +
         'ready count, no port, no address — and carries its latest run instead: which revision, ' +
         'what phase, how long it took and the exit code. That is the only way to learn how a ' +
@@ -558,8 +558,8 @@ export function registerTools(server: McpServer, api: Api): void {
         'that runs to completion rather than listening — a migration, a backfill — that is `run`, ' +
         'and the two cannot be swapped: deploying over a job is refused `not_a_service`.\n' +
         'Three rules the shape of this call depends on. **Env is replaced wholesale**, so restate ' +
-        'every variable on every deploy — the domain, the size and the dependencies all survive a ' +
-        'deploy that forgets to mention them. That also means you cannot change one variable ' +
+        'every variable on every deploy — the domain, the size, the replica count and the ' +
+        'dependencies all survive a deploy that forgets to mention them. That also means you cannot change one variable ' +
         'without holding them all. `status` and `history` name the variables (`env_keys`) but never ' +
         'return their values, so if you were not given the environment, do NOT reconstruct it or ' +
         'redeploy with a guess — every key you leave out is deleted. **Env is for configuration, ' +
@@ -597,6 +597,23 @@ export function registerTools(server: McpServer, api: Api): void {
           .string()
           .optional()
           .describe('CPU and memory envelope. Absent keeps whatever it already had.'),
+        min_replicas: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            'copies to run, at least; give it with `max_replicas`, both or neither. Equal means a ' +
+              'fixed count, below it the platform autoscales on CPU within the range. At most 5. ' +
+              'Refused `replicas_with_volume` for a service with a volume. Absent keeps what it had.',
+          ),
+        max_replicas: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            'copies to run, at most; see `min_replicas`. Every running copy is billed at the ' +
+              "size's per-minute rate: a range bills its minimum always, each extra copy only while it runs.",
+          ),
         volume_path: z
           .string()
           .optional()

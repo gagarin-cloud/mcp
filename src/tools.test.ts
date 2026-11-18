@@ -130,6 +130,26 @@ test('deploy PUTs the service and passes the environment through whole', async (
   }
 });
 
+test('deploy sends min_replicas and max_replicas when given, and neither when absent', async () => {
+  const kit = await connected(() => json({ name: 'web' }));
+  try {
+    const base = {
+      project: 'shop',
+      service: 'web',
+      image: 'registry.gagarin.cloud/abc123/web:v3',
+      port: 8080,
+    };
+    await kit.client.callTool({ name: 'deploy', arguments: { ...base, min_replicas: 2, max_replicas: 4 } });
+    await kit.client.callTool({ name: 'deploy', arguments: base });
+    assert.equal((kit.seen[0]!.body as any).min_replicas, 2);
+    assert.equal((kit.seen[0]!.body as any).max_replicas, 4);
+    assert.ok(!('min_replicas' in (kit.seen[1]!.body as object)));
+    assert.ok(!('max_replicas' in (kit.seen[1]!.body as object)));
+  } finally {
+    await kit[Symbol.asyncDispose]();
+  }
+});
+
 test('a minted rotation still sends an empty body', async () => {
   const kit = await connected(() => json({ resource: 'db' }));
   try {
