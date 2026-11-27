@@ -37,7 +37,10 @@ https://mcp.gagarin.cloud/mcp
 Claude, ChatGPT, Codex and Claude Code prompt for sign-in when they connect: the
 client opens a browser and the human signs in with GitHub or Google. In ChatGPT
 and Codex the URL arrives inside the Gagarin plugin
-([gagarin-cloud/plugin](https://github.com/gagarin-cloud/plugin)); OpenAI's
+([gagarin-cloud/plugin](https://github.com/gagarin-cloud/plugin)), which is in
+their shared
+[Plugins Directory](https://chatgpt.com/plugins/plugin_asdk_app_6af236f4f560819194b7c812c0dbfb41);
+OpenAI's
 plugin portal proves the hostname is ours by reading a token it chose at
 `/.well-known/openai-apps-challenge`, which this server serves as plain text
 from `OPENAI_APPS_CHALLENGE` and does not serve at all when that is unset. A request with no
